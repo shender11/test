@@ -16,6 +16,10 @@ OWNER_ID = 1826030998
 TEAM_NAME = "test"
 TOKEN = "8697726930:AAFIPp8AktdwjdwEX-G3J6xXwZxxkmenCUU"
 
+TEAM_SIZE = 15
+ACTIVE_TEAM_SIZE = TEAM_SIZE - 2
+MAX_DAY_OFF = max(1, int(ACTIVE_TEAM_SIZE * 0.2))
+
 # Google access
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -33,10 +37,13 @@ client = gspread.authorize(creds)
 
 sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").sheet1
 
+days_off_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("DaysOff")
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 break_data = {}
+waiting_dayoff = set()
 waiting_time = set()
 
 keyboard = ReplyKeyboardMarkup(
@@ -207,6 +214,68 @@ async def handle(message: Message):
         del break_data[user_id]
 
         await message.answer("Break finished", reply_markup=keyboard)
+
+elif message.text == "Take day off":
+    waiting_dayoff.add(user_id)
+    await message.answer("Write date DD.MM (example 25.04)")
+
+elif user_id in waiting_dayoff:
+
+    try:
+        day, month = map(int, message.text.split("."))
+        year = datetime.now().year
+        selected_date = datetime(year, month, day)
+    except:
+        await message.answer("Wrong format. Example: 25.04")
+        return
+
+    waiting_dayoff.remove(user_id)
+
+    records = days_off_sheet.get_all_values()
+    user_id_str = str(user_id)
+
+    user_days = [
+        r for r in records
+        if len(r) > 5 and r[3] == user_id_str and r[5] == str(month)
+    ]
+
+    if len(user_days) >= 6:
+        await message.answer("You already have 6 days off this month")
+        return
+
+    same_day = [
+        r for r in records
+        if len(r) > 6 and r[4] == selected_date.strftime("%d.%m.%Y")
+    ]
+
+    if len(same_day) >= MAX_DAY_OFF:
+        await message.answer("This day is already full")
+        return
+
+    days_off_sheet.append_row([
+        datetime.now().strftime("%d.%m.%Y"),
+        message.from_user.full_name,
+        message.from_user.username or "no username",
+        user_id,
+        selected_date.strftime("%d.%m.%Y"),
+        month,
+        TEAM_NAME
+    ])
+
+    remaining = MAX_DAY_OFF - len(same_day) - 1
+
+    text = (
+        f"[{TEAM_NAME}]\n"
+        f"📅 Day off taken\n"
+        f"{message.from_user.full_name}\n"
+        f"Date: {selected_date.strftime('%d.%m.%Y')}\n"
+        f"Remaining spots: {remaining}"
+    )
+
+    await bot.send_message(ADMIN_ID, text)
+    await bot.send_message(OWNER_ID, text)
+
+    await message.answer("Day off saved")
 
 # RUN
 async def main():
