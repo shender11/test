@@ -49,7 +49,9 @@ waiting_time = set()
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Start Break")],
-        [KeyboardButton(text="End Break")]
+        [KeyboardButton(text="End Break")],
+        [KeyboardButton(text="Take day off")],
+        [KeyboardButton(text="My days off")]
     ],
     resize_keyboard=True
 )
