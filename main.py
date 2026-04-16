@@ -215,67 +215,91 @@ async def handle(message: Message):
 
         await message.answer("Break finished", reply_markup=keyboard)
 
-elif message.text == "Take day off":
-    waiting_dayoff.add(user_id)
-    await message.answer("Write date DD.MM (example 25.04)")
+    elif message.text == "Take day off":
+        waiting_dayoff.add(user_id)
+        await message.answer("Write date DD.MM (example 25.04)")
 
-elif user_id in waiting_dayoff:
+    elif user_id in waiting_dayoff:
 
-    try:
-        day, month = map(int, message.text.split("."))
-        year = datetime.now().year
-        selected_date = datetime(year, month, day)
-    except:
-        await message.answer("Wrong format. Example: 25.04")
-        return
+        try:
+            day, month = map(int, message.text.split("."))
+            year = datetime.now().year
+            selected_date = datetime(year, month, day)
+        except:
+            await message.answer("Wrong format. Example: 25.04")
+            return
 
-    waiting_dayoff.remove(user_id)
+        waiting_dayoff.remove(user_id)
 
-    records = days_off_sheet.get_all_values()
-    user_id_str = str(user_id)
+        records = days_off_sheet.get_all_values()
+        user_id_str = str(user_id)
 
-    user_days = [
-        r for r in records
-        if len(r) > 5 and r[3] == user_id_str and r[5] == str(month)
-    ]
+        user_days = [
+            r for r in records
+            if len(r) > 5 and r[3] == user_id_str and r[5] == str(month)
+        ]
 
-    if len(user_days) >= 6:
-        await message.answer("You already have 6 days off this month")
-        return
+        if len(user_days) >= 6:
+            await message.answer("You already have 6 days off this month")
+            return
 
-    same_day = [
-        r for r in records
-        if len(r) > 6 and r[4] == selected_date.strftime("%d.%m.%Y")
-    ]
+        same_day = [
+            r for r in records
+            if len(r) > 6 and r[4] == selected_date.strftime("%d.%m.%Y")
+        ]
 
-    if len(same_day) >= MAX_DAY_OFF:
-        await message.answer("This day is already full")
-        return
+        if len(same_day) >= MAX_DAY_OFF:
+            await message.answer("This day is already full")
+            return
 
-    days_off_sheet.append_row([
-        datetime.now().strftime("%d.%m.%Y"),
-        message.from_user.full_name,
-        message.from_user.username or "no username",
-        user_id,
-        selected_date.strftime("%d.%m.%Y"),
-        month,
-        TEAM_NAME
-    ])
+        days_off_sheet.append_row([
+            datetime.now().strftime("%d.%m.%Y"),
+            message.from_user.full_name,
+            message.from_user.username or "no username",
+            user_id,
+            selected_date.strftime("%d.%m.%Y"),
+            month,
+            TEAM_NAME
+        ])
 
-    remaining = MAX_DAY_OFF - len(same_day) - 1
+        remaining = MAX_DAY_OFF - len(same_day) - 1
 
-    text = (
-        f"[{TEAM_NAME}]\n"
-        f"📅 Day off taken\n"
-        f"{message.from_user.full_name}\n"
-        f"Date: {selected_date.strftime('%d.%m.%Y')}\n"
-        f"Remaining spots: {remaining}"
-    )
+        text = (
+            f"[{TEAM_NAME}]\n"
+            f"📅 Day off taken\n"
+            f"{message.from_user.full_name}\n"
+            f"Date: {selected_date.strftime('%d.%m.%Y')}\n"
+            f"Remaining spots: {remaining}"
+        )
 
-    await bot.send_message(ADMIN_ID, text)
-    await bot.send_message(OWNER_ID, text)
+        await bot.send_message(ADMIN_ID, text)
+        await bot.send_message(OWNER_ID, text)
 
-    await message.answer("Day off saved")
+        await message.answer("Day off saved")
+
+    elif message.text == "My days off":
+
+        records = days_off_sheet.get_all_values()
+        user_id_str = str(user_id)
+        month = datetime.now().month
+
+        user_days = [
+            r for r in records
+            if len(r) > 5 and r[3] == user_id_str and int(r[5]) == month
+        ]
+
+        if not user_days:
+            await message.answer("No days off this month")
+            return
+
+        text = "Your days off:\n\n"
+
+        for r in user_days:
+            text += f"{r[4]}\n"
+
+        text += f"\nRemaining: {6 - len(user_days)}"
+
+        await message.answer(text)
 
 # RUN
 async def main():
