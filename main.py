@@ -66,7 +66,6 @@ def generate_calendar():
     year = now.year
 
     records = days_off_sheet.get_all_values()
-
     buttons = []
 
     for day in range(1, 32):
@@ -84,7 +83,6 @@ def generate_calendar():
 
         taken = len(same_day)
 
-        # ❌ прошлые даты блокируем
         if date.date() < now.date():
             text = f"⛔ {day}"
             callback = "ignore"
@@ -93,7 +91,6 @@ def generate_calendar():
                 text = f"🔴 {day}"
                 callback = "ignore"
             else:
-                left = MAX_DAY_OFF - taken
                 text = f"🟢 {day}"
                 callback = f"day_{day}_{month}"
 
@@ -105,7 +102,6 @@ def generate_calendar():
         )
 
     keyboard = [buttons[i:i+5] for i in range(0, len(buttons), 5)]
-
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 # СТАРТ
@@ -329,7 +325,7 @@ async def select_day(callback: CallbackQuery):
     records = days_off_sheet.get_all_values()
     user_id_str = str(user_id)
 
-    # проверка 6 выходных
+    # 🔹 проверка 6 выходных
     user_days = [
         r for r in records
         if len(r) > 5 and r[3] == user_id_str and int(r[5]) == month
@@ -339,7 +335,7 @@ async def select_day(callback: CallbackQuery):
         await callback.message.answer("❌ У тебя уже 6 выходных в этом месяце")
         return
 
-    # проверка 20%
+    # 🔹 проверка 20%
     same_day = [
         r for r in records
         if len(r) > 6 and r[4] == selected_date.strftime("%d.%m.%Y")
@@ -349,7 +345,21 @@ async def select_day(callback: CallbackQuery):
         await callback.message.answer("❌ На этот день уже нет мест")
         return
 
-    # запись
+    # 🔹 список людей
+    user_list = []
+
+    for r in same_day:
+        username = r[2]
+        if username and username != "без username":
+            user_list.append(f"@{username}")
+        else:
+            user_list.append(r[1])
+
+    list_text = ""
+    if user_list:
+        list_text = "\n\nУже взяли:\n" + "\n".join(user_list)
+
+    # 🔹 запись
     days_off_sheet.append_row([
         datetime.now().strftime("%d.%m.%Y"),
         callback.from_user.full_name,
@@ -360,18 +370,21 @@ async def select_day(callback: CallbackQuery):
         TEAM_NAME
     ])
 
-    remaining = MAX_DAY_OFF - len(same_day) - 1
+    remaining = MAX_DAY_OFF - (len(same_day) + 1)
 
     text = (
         f"[{TEAM_NAME}]\n"
         f"📅 Взял выходной\n"
-        f"{callback.from_user.full_name}\n"
+        f"@{callback.from_user.username if callback.from_user.username else 'без username'}\n"
         f"{selected_date.strftime('%d.%m.%Y')}\n"
         f"Осталось мест: {remaining}"
+        f"{list_text}"
     )
 
+    # 🔹 отправка
     await bot.send_message(ADMIN_ID, text)
     await bot.send_message(OWNER_ID, text)
+
     for u in users:
         if u == user_id:
             continue
