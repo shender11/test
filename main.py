@@ -13,7 +13,6 @@ from google.oauth2.service_account import Credentials
 # 🔴 НАСТРОЙКИ
 ADMIN_ID = 444097934
 OWNER_ID = 1826030998
-TEAM_NAME = "test"
 TOKEN = "8697726930:AAFIPp8AktdwjdwEX-G3J6xXwZxxkmenCUU"
 
 TEAM_SIZE = 15
@@ -44,6 +43,8 @@ dp = Dispatcher()
 break_data = {}
 waiting_time = set()
 users = set()
+calendar_messages = {}
+last_messages = {}
 
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -105,6 +106,27 @@ def generate_calendar():
     keyboard = [buttons[i:i+5] for i in range(0, len(buttons), 5)]
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
+async def send_clean_message(user_id, text, reply_markup=None):
+    # удалить старое сообщение
+    if user_id in last_messages:
+        try:
+            await bot.delete_message(
+                chat_id=user_id,
+                message_id=last_messages[user_id]
+            )
+        except:
+            pass
+
+    # отправить новое
+    msg = await bot.send_message(
+        user_id,
+        text,
+        reply_markup=reply_markup
+    )
+
+    # сохранить id
+    last_messages[user_id] = msg.message_id
+
 # СТАРТ
 @dp.message(CommandStart())
 async def start(message: Message):
@@ -161,7 +183,7 @@ async def handle(message: Message):
 
     if message.text == "Начать перерыв":
         waiting_time.add(user_id)
-        await message.answer("Введи длительность перерыва (максимум 30 минут)")
+        await send_clean_message(user_id, "Введи длительность перерыва (максимум 30 минут)")
 
     elif user_id in waiting_time:
 
@@ -186,7 +208,7 @@ async def handle(message: Message):
             "minutes": minutes
         }
 
-        await message.answer(f"Перерыв начат на {minutes} мин", reply_markup=keyboard)
+        await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", keyboard)
 
         text = (
             f"[{TEAM_NAME}]\n"
@@ -240,14 +262,31 @@ async def handle(message: Message):
 
         del break_data[user_id]
 
-        await message.answer("Перерыв завершён", reply_markup=keyboard)
+        await send_clean_message(user_id, "Перерыв завершён", keyboard)
 
     elif message.text == "Взять выходной":
 
-         await message.answer(
+        user_id = message.from_user.id
+
+        # 🔥 УДАЛЯЕМ СТАРЫЙ КАЛЕНДАРЬ
+        if user_id in calendar_messages:
+            try:
+                await bot.delete_message(
+                    chat_id=user_id,
+                    message_id=calendar_messages[user_id]
+                )
+            except:
+                pass
+
+        calendar_kb = generate_calendar()
+
+        msg = await message.answer(
             "Выбери день:",
-            reply_markup=generate_calendar()
+            reply_markup=calendar_kb
         )
+
+        # 🔥 СОХРАНЯЕМ ID
+        calendar_messages[user_id] = msg.message_id
 
     elif message.text == "Мои выходные":
 
@@ -271,7 +310,7 @@ async def handle(message: Message):
 
         text += f"\nОсталось: {6 - len(user_days)}"
 
-        await message.answer(text)
+        await send_clean_message(user_id, text)
         
     elif message.text == "Свободные дни":
 
@@ -303,7 +342,7 @@ async def handle(message: Message):
                 left = MAX_DAY_OFF - taken
                 text += f"{date_str} — 🟢 {left} мест\n"
 
-        await message.answer(text)
+        await send_clean_message(user_id, text)
 
 @dp.callback_query(F.data == "ignore")
 async def ignore_click(callback: CallbackQuery):
