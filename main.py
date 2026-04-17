@@ -36,6 +36,7 @@ client = gspread.authorize(creds)
 
 sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").sheet1
 days_off_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("DaysOff")
+users_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("Users")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -47,6 +48,15 @@ calendar_messages = {}
 last_messages = {}
 blocked_users = set()
 salary_waiting = {}
+
+# загрузка пользователей из таблицы
+try:
+    records = users_sheet.get_all_values()
+    for r in records:
+        if r:
+            users.add(int(r[0]))
+except:
+    pass
 
 # 🔹 ГЛАВНОЕ МЕНЮ
 main_keyboard = ReplyKeyboardMarkup(
@@ -233,6 +243,19 @@ async def handle(message: Message):
 
     user_id = message.from_user.id
 
+    if message.text in [
+        "Перерывы", "Выходные", "Зарплата",
+        "Назад",
+        "Начать перерыв", "Закончить перерыв",
+        "Взять выходной", "Мои выходные", "Свободные дни",
+        "Моя зарплата"
+    ]:
+
+        try:
+            await message.delete()
+        except:
+            pass
+
     # 🔹 МЕНЮ
     if message.text == "Перерывы":
         await send_clean_message(user_id, "Меню перерывов", reply_markup=break_keyboard)
@@ -258,6 +281,10 @@ async def handle(message: Message):
         
     if user_id not in users:
         users.add(user_id)
+        try:
+            users_sheet.append_row([user_id])
+        except:
+            pass
 
     if message.text == "Начать перерыв":
         waiting_time.add(user_id)
