@@ -15,10 +15,6 @@ ADMIN_ID = 444097934
 OWNER_ID = 1826030998
 TOKEN = "8697726930:AAFIPp8AktdwjdwEX-G3J6xXwZxxkmenCUU"
 
-TEAM_SIZE = 15
-ACTIVE_TEAM_SIZE = TEAM_SIZE - 2
-MAX_DAY_OFF = max(1, int(ACTIVE_TEAM_SIZE * 0.2))
-
 # Google доступ
 scope = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -37,6 +33,7 @@ client = gspread.authorize(creds)
 sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").sheet1
 days_off_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("DaysOff")
 users_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("Users")
+settings_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("Settings")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -102,6 +99,21 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import CallbackQuery
 from aiogram import F
 
+def get_team_limit():
+    try:
+        records = settings_sheet.get_all_values()
+
+        for r in records:
+            if r and r[0] == "team_size":
+                team_size = int(r[1])
+                active = team_size - 2
+                return max(1, int(active * 0.2))
+
+    except:
+        pass
+
+    return 1
+
 def generate_calendar():
     now = datetime.now()
     month = now.month
@@ -129,12 +141,14 @@ def generate_calendar():
             text = f"⛔ {day}"
             callback = "ignore"
         else:
-            if taken >= MAX_DAY_OFF:
+            limit = get_team_limit()
+
+            if taken >= limit:
                 text = f"🔴 {day}"
                 callback = "ignore"
             else:
-                left = MAX_DAY_OFF - taken
-                text = f"{day}🟢{left}"
+                left = limit - taken
+                text = f"{day} ({left})"
                 callback = f"day_{day}_{month}"
 
         buttons.append(
@@ -207,8 +221,6 @@ async def break_control(user_id, minutes, name, username):
         await asyncio.sleep(3 * 60)
     else:
         await asyncio.sleep(minutes * 60)
-
-    await asyncio.sleep(60)
 
     if user_id in break_data and user_id not in blocked_users:
         text = (
@@ -441,10 +453,12 @@ async def handle(message: Message):
 
             taken = len(same_day)
 
-            if taken >= MAX_DAY_OFF:
+            limit = get_team_limit()
+
+            if taken >= limit:
                 text += f"{date_str} — 🔴 занято\n"
             else:
-                left = MAX_DAY_OFF - taken
+                left = limit - taken
                 text += f"{date_str} — 🟢 {left} мест\n"
 
         await send_clean_message(user_id, text)
@@ -584,7 +598,7 @@ async def select_day(callback: CallbackQuery):
         if len(r) > 5 and r[4] == selected_date.strftime("%d.%m.%Y")
     ]
 
-    if len(same_day) >= MAX_DAY_OFF:
+    if len(same_day) >= get_team_limit():
         await callback.message.answer("❌ На этот день уже нет мест")
         return
 
@@ -612,7 +626,7 @@ async def select_day(callback: CallbackQuery):
         month
     ])
 
-    remaining = MAX_DAY_OFF - (len(same_day) + 1)
+    remaining = get_team_limit() - (len(same_day) + 1)
 
     text = (
         f"📅 Взял выходной\n"
