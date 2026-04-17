@@ -93,7 +93,7 @@ def generate_calendar():
                 callback = "ignore"
             else:
                 left = MAX_DAY_OFF - taken
-                text = f"🟢 {day} ({left})"
+                text = f"{day}🟢{left}"
                 callback = f"day_{day}_{month}"
 
         buttons.append(
