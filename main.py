@@ -57,7 +57,7 @@ keyboard = ReplyKeyboardMarkup(
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.types import CallbackQuery
-from aiogram.filters import Text
+from aiogram import F
 
 def generate_calendar():
     now = datetime.now()
@@ -282,7 +282,7 @@ async def handle(message: Message):
                 text += f"{date_str} — 🟢 {left} мест\n"
 
         await message.answer(text)
-@dp.callback_query(Text(startswith="day_"))
+@dp.callback_query(F.data.startswith("day_"))
 async def select_day(callback: CallbackQuery):
 
     await callback.answer()
