@@ -48,14 +48,42 @@ last_messages = {}
 blocked_users = set()
 salary_waiting = {}
 
-keyboard = ReplyKeyboardMarkup(
+# 🔹 ГЛАВНОЕ МЕНЮ
+main_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Перерывы")],
+        [KeyboardButton(text="Выходные")],
+        [KeyboardButton(text="Зарплата")]
+    ],
+    resize_keyboard=True
+)
+
+# 🔹 ПЕРЕРЫВЫ
+break_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Начать перерыв")],
         [KeyboardButton(text="Закончить перерыв")],
+        [KeyboardButton(text="Назад")]
+    ],
+    resize_keyboard=True
+)
+
+# 🔹 ВЫХОДНЫЕ
+days_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
         [KeyboardButton(text="Взять выходной")],
         [KeyboardButton(text="Мои выходные")],
         [KeyboardButton(text="Свободные дни")],
-        [KeyboardButton(text="Моя зарплата")]
+        [KeyboardButton(text="Назад")]
+    ],
+    resize_keyboard=True
+)
+
+# 🔹 ЗАРПЛАТА
+salary_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Моя зарплата")],
+        [KeyboardButton(text="Назад")]
     ],
     resize_keyboard=True
 )
@@ -148,7 +176,11 @@ async def send_clean_message(user_id, text, reply_markup=None):
 # СТАРТ
 @dp.message(CommandStart())
 async def start(message: Message):
-    await send_clean_message(message.from_user.id,"Бот учета перерывов и выходных", reply_markup=keyboard)
+    await send_clean_message(
+        message.from_user.id,
+        "Главное меню",
+        reply_markup=main_keyboard
+    )
 
 # 🚨 КОНТРОЛЬ ПЕРЕРЫВА
 async def break_control(user_id, minutes, name, username):
@@ -198,15 +230,32 @@ async def break_control(user_id, minutes, name, username):
 # ОСНОВНАЯ ЛОГИКА
 @dp.message()
 async def handle(message: Message):
+
+    user_id = message.from_user.id
+
+    # 🔹 МЕНЮ
+    if message.text == "Перерывы":
+        await send_clean_message(user_id, "Меню перерывов", reply_markup=break_keyboard)
+        return
+
+    elif message.text == "Выходные":
+        await send_clean_message(user_id, "Меню выходных", reply_markup=days_keyboard)
+        return
+
+    elif message.text == "Зарплата":
+        await send_clean_message(user_id, "Меню зарплаты", reply_markup=salary_keyboard)
+        return
+
+    elif message.text == "Назад":
+        await send_clean_message(user_id, "Главное меню", reply_markup=main_keyboard)
+        return
         
     if message.text and message.text.startswith("/"):
         return
     
     if message.from_user.id in blocked_users:
         return
-    
-    user_id = message.from_user.id
-    
+        
     if user_id not in users:
         users.add(user_id)
 
@@ -216,7 +265,7 @@ async def handle(message: Message):
 
     elif user_id in waiting_time:
 
-        if not message.text.isdigit():
+        if not message.text or not message.text.isdigit():
             await send_clean_message(user_id, "❗ Введи число")
             return
 
@@ -237,7 +286,7 @@ async def handle(message: Message):
             "minutes": minutes
         }
 
-        await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", reply_markup=keyboard)
+        await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", reply_markup=break_keyboard)
 
         text = (
             f"🟡 Начал перерыв ({minutes} мин)\n"
@@ -290,7 +339,7 @@ async def handle(message: Message):
 
         del break_data[user_id]
 
-        await send_clean_message(user_id, "Перерыв завершён", reply_markup=keyboard)
+        await send_clean_message(user_id, "Перерыв завершён", reply_markup=break_keyboard)
 
     elif message.text == "Взять выходной":
 
@@ -456,7 +505,7 @@ async def handle(message: Message):
                 f"{clean_gifts:.2f} - 4% = {final_gifts:.2f}\n\n"
                 f"ИТОГ:\n"
                 f"{total:.2f}$",
-                reply_markup=keyboard
+                reply_markup=salary_keyboard
             )
 
             del salary_waiting[user_id]
@@ -492,6 +541,16 @@ async def select_day(callback: CallbackQuery):
         await callback.message.answer("❌ У тебя уже 6 выходных в этом месяце")
         return
 
+    # ❌ проверка что уже брал этот день
+    already_taken = [
+        r for r in records
+        if len(r) > 5 and r[3] == user_id_str and r[4] == selected_date.strftime("%d.%m.%Y")
+    ]
+
+    if already_taken:
+        await callback.message.answer("❌ Ты уже взял этот день")
+        return
+    
     # 🔹 проверка 20%
     same_day = [
         r for r in records
