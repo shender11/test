@@ -79,7 +79,7 @@ def generate_calendar():
 
         same_day = [
             r for r in records
-            if len(r) > 6 and r[4] == date_str
+            if len(r) > 5 and r[4] == date_str
         ]
 
         taken = len(same_day)
@@ -130,7 +130,7 @@ async def send_clean_message(user_id, text, reply_markup=None):
 # СТАРТ
 @dp.message(CommandStart())
 async def start(message: Message):
-    await message.answer("Бот учета перерывов и выходных", reply_markup=keyboard)
+    await send_clean_message(message.from_user.id,"Бот учета перерывов и выходных", reply_markup=keyboard)
 
 # 🚨 КОНТРОЛЬ ПЕРЕРЫВА
 async def break_control(user_id, minutes, name, username):
@@ -149,7 +149,6 @@ async def break_control(user_id, minutes, name, username):
 
     if user_id in break_data:
         text = (
-            f"[{TEAM_NAME}]\n"
             f"🚨 ОПОЗДАНИЕ (+1 мин)\n"
             f"{name}\n"
             f"@{username if username else 'без username'}"
@@ -188,17 +187,17 @@ async def handle(message: Message):
     elif user_id in waiting_time:
 
         if not message.text.isdigit():
-            await message.answer("❗ Введи число (например: 15)")
+            await send_clean_message(user_id, "❗ Введи число")
             return
 
         minutes = int(message.text)
 
         if minutes > 30:
-            await message.answer("❗ Максимум 30 минут")
+            await send_clean_message(user_id, "❗ Максимум 30 минут")
             return
 
         if minutes <= 0:
-            await message.answer("❗ Некорректное значение")
+            await send_clean_message(user_id, "❗ Некорректное значение")
             return
 
         waiting_time.remove(user_id)
@@ -211,7 +210,6 @@ async def handle(message: Message):
         await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", keyboard)
 
         text = (
-            f"[{TEAM_NAME}]\n"
             f"🟡 Начал перерыв ({minutes} мин)\n"
             f"{message.from_user.full_name}"
         )
@@ -231,7 +229,7 @@ async def handle(message: Message):
     elif message.text == "Закончить перерыв":
 
         if user_id not in break_data:
-            await message.answer("Нет активного перерыва")
+            await send_clean_message(user_id, "Нет активного перерыва")
             return
 
         data = break_data[user_id]
@@ -251,7 +249,6 @@ async def handle(message: Message):
         ])
 
         text = (
-            f"[{TEAM_NAME}]\n"
             f"🟢 Закончил перерыв\n"
             f"{message.from_user.full_name}\n"
             f"{minutes} мин"
@@ -268,24 +265,25 @@ async def handle(message: Message):
 
         user_id = message.from_user.id
 
-        # 🔥 УДАЛЯЕМ СТАРЫЙ КАЛЕНДАРЬ
         if user_id in calendar_messages:
             try:
                 await bot.delete_message(
                     chat_id=user_id,
                     message_id=calendar_messages[user_id]
                 )
-            except:
-                pass
+            except Exception as e:
+                print("Ошибка удаления:", e)
+
+            del calendar_messages[user_id]
 
         calendar_kb = generate_calendar()
 
-        msg = await message.answer(
+        msg = await bot.send_message(
+            user_id,
             "Выбери день:",
             reply_markup=calendar_kb
         )
 
-        # 🔥 СОХРАНЯЕМ ID
         calendar_messages[user_id] = msg.message_id
 
     elif message.text == "Мои выходные":
@@ -300,7 +298,7 @@ async def handle(message: Message):
         ]
 
         if not user_days:
-            await message.answer("У тебя нет выходных в этом месяце")
+            await send_clean_message(user_id, "У тебя пока нет выходных")
             return
 
         text = "Твои выходные:\n\n"
@@ -331,7 +329,7 @@ async def handle(message: Message):
 
             same_day = [
                 r for r in records
-                if len(r) > 6 and r[4] == date_str
+                if len(r) > 5 and r[4] == date_str
             ]
 
             taken = len(same_day)
@@ -378,7 +376,7 @@ async def select_day(callback: CallbackQuery):
     # 🔹 проверка 20%
     same_day = [
         r for r in records
-        if len(r) > 6 and r[4] == selected_date.strftime("%d.%m.%Y")
+        if len(r) > 5 and r[4] == selected_date.strftime("%d.%m.%Y")
     ]
 
     if len(same_day) >= MAX_DAY_OFF:
@@ -406,14 +404,12 @@ async def select_day(callback: CallbackQuery):
         callback.from_user.username or "без username",
         user_id,
         selected_date.strftime("%d.%m.%Y"),
-        month,
-        TEAM_NAME
+        month
     ])
 
     remaining = MAX_DAY_OFF - (len(same_day) + 1)
 
     text = (
-        f"[{TEAM_NAME}]\n"
         f"📅 Взял выходной\n"
         f"@{callback.from_user.username if callback.from_user.username else 'без username'}\n"
         f"{selected_date.strftime('%d.%m.%Y')}\n"
