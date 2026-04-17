@@ -90,8 +90,9 @@ def generate_calendar():
             if taken >= MAX_DAY_OFF:
                 text = f"🔴 {day}"
                 callback = "ignore"
-            else:
-                text = f"🟢 {day}"
+        else:
+                left = MAX_DAY_OFF - taken
+                text = f"🟢 {day} ({left})"
                 callback = f"day_{day}_{month}"
 
         buttons.append(
