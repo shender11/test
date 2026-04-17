@@ -46,7 +46,7 @@ users = set()
 calendar_messages = {}
 last_messages = {}
 blocked_users = set()
-
+salary_waiting = {}
 
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -54,7 +54,8 @@ keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="Закончить перерыв")],
         [KeyboardButton(text="Взять выходной")],
         [KeyboardButton(text="Мои выходные")],
-        [KeyboardButton(text="Свободные дни")]   # 👈 НОВАЯ
+        [KeyboardButton(text="Свободные дни")],
+        [KeyboardButton(text="Моя зарплата")]
     ],
     resize_keyboard=True
 )
@@ -371,6 +372,94 @@ async def handle(message: Message):
                 text += f"{date_str} — 🟢 {left} мест\n"
 
         await send_clean_message(user_id, text)
+
+    # 💰 ЗАРПЛАТА
+    elif message.text == "Моя зарплата":
+        salary_waiting[user_id] = {"step": "balance"}
+        await send_clean_message(user_id, "Введи баланс ($)")
+
+    elif user_id in salary_waiting:
+
+        step = salary_waiting[user_id]["step"]
+
+        # 1. баланс
+        if step == "balance":
+            try:
+                balance = float(message.text)
+            except:
+                await send_clean_message(user_id, "Введи число")
+                return
+
+            salary_waiting[user_id]["balance"] = balance
+            salary_waiting[user_id]["step"] = "percent"
+
+            await send_clean_message(user_id, "Введи процент (например 45)")
+
+        # 2. процент
+        elif step == "percent":
+            try:
+                percent = float(message.text)
+            except:
+                await send_clean_message(user_id, "Введи число")
+                return
+
+            salary_waiting[user_id]["percent"] = percent
+            salary_waiting[user_id]["step"] = "gifts"
+
+            await send_clean_message(user_id, "Введи сумму подарков ($)")
+
+        # 3. подарки
+        elif step == "gifts":
+            try:
+                gifts = float(message.text)
+            except:
+                await send_clean_message(user_id, "Введи число")
+                return
+
+            salary_waiting[user_id]["gifts"] = gifts
+            salary_waiting[user_id]["step"] = "gifts_percent"
+
+            await send_clean_message(user_id, "Введи процент с подарков (20-25)")
+
+        # 4. финал
+        elif step == "gifts_percent":
+            try:
+                gifts_percent = float(message.text)
+            except:
+                await send_clean_message(user_id, "Введи число")
+                return
+
+            data = salary_waiting[user_id]
+
+            balance = data["balance"]
+            percent = data["percent"]
+            gifts = data["gifts"]
+
+            # баланс
+            clean_balance = balance * (percent / 100)
+            cashout_balance = clean_balance * 0.04
+            final_balance = clean_balance - cashout_balance
+
+            # подарки
+            clean_gifts = gifts * (gifts_percent / 100)
+            cashout_gifts = clean_gifts * 0.04
+            final_gifts = clean_gifts - cashout_gifts
+
+            total = final_balance + final_gifts
+
+            await send_clean_message(
+                user_id,
+                f"💰 ТВОЯ ЗАРПЛАТА:\n\n"
+                f"Баланс:\n"
+                f"{clean_balance:.2f} - 4% = {final_balance:.2f}\n\n"
+                f"Подарки:\n"
+                f"{clean_gifts:.2f} - 4% = {final_gifts:.2f}\n\n"
+                f"ИТОГ:\n"
+                f"{total:.2f}$",
+                reply_markup=keyboard
+            )
+
+            del salary_waiting[user_id]
 
 @dp.callback_query(F.data == "ignore")
 async def ignore_click(callback: CallbackQuery):
