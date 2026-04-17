@@ -45,6 +45,8 @@ waiting_time = set()
 users = set()
 calendar_messages = {}
 last_messages = {}
+blocked_users = set()
+
 
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -107,7 +109,20 @@ def generate_calendar():
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 async def send_clean_message(user_id, text, reply_markup=None):
-    # удалить старое сообщение
+
+    # ❌ удалить старый календарь
+    if user_id in calendar_messages:
+        try:
+            await bot.delete_message(
+                chat_id=user_id,
+                message_id=calendar_messages[user_id]
+            )
+        except:
+            pass
+
+        del calendar_messages[user_id]
+
+    # ❌ удалить старое сообщение
     if user_id in last_messages:
         try:
             await bot.delete_message(
@@ -117,7 +132,7 @@ async def send_clean_message(user_id, text, reply_markup=None):
         except:
             pass
 
-    # отправить новое
+    # ✅ отправить новое
     msg = await bot.send_message(
         user_id,
         text,
@@ -127,6 +142,8 @@ async def send_clean_message(user_id, text, reply_markup=None):
     # сохранить id
     last_messages[user_id] = msg.message_id
 
+    return msg
+
 # СТАРТ
 @dp.message(CommandStart())
 async def start(message: Message):
@@ -134,11 +151,14 @@ async def start(message: Message):
 
 # 🚨 КОНТРОЛЬ ПЕРЕРЫВА
 async def break_control(user_id, minutes, name, username):
+    
+    if user_id in blocked_users:
+        return
 
     if minutes > 3:
         await asyncio.sleep((minutes - 3) * 60)
 
-        if user_id in break_data:
+        if user_id in break_data and user_id not in blocked_users:
             await bot.send_message(user_id, "⏳ До конца перерыва осталось 3 минуты")
 
         await asyncio.sleep(3 * 60)
@@ -147,7 +167,7 @@ async def break_control(user_id, minutes, name, username):
 
     await asyncio.sleep(60)
 
-    if user_id in break_data:
+    if user_id in break_data and user_id not in blocked_users:
         text = (
             f"🚨 ОПОЗДАНИЕ (+1 мин)\n"
             f"{name}\n"
@@ -160,25 +180,34 @@ async def break_control(user_id, minutes, name, username):
 
     await asyncio.sleep(2 * 60)
 
-    if user_id in break_data:
+    if user_id in break_data and user_id not in blocked_users:
         await bot.send_message(user_id, "🚨 Ты уже опаздываешь на 3 минуты!")
 
     await asyncio.sleep(2 * 60)
 
-    if user_id in break_data:
+    if user_id in break_data and user_id not in blocked_users:
         await bot.send_message(user_id, "🚨 Ты уже опаздываешь на 5 минут!")
 
     while user_id in break_data:
         await asyncio.sleep(5 * 60)
 
-        if user_id in break_data:
+        if user_id in break_data and user_id not in blocked_users:
             await bot.send_message(user_id, "🚨 Ты всё ещё на перерыве! Вернись к работе!")
 
 # ОСНОВНАЯ ЛОГИКА
 @dp.message()
 async def handle(message: Message):
+        
+    if message.text and message.text.startswith("/"):
+        return
+    
+    if message.from_user.id in blocked_users:
+        return
+    
     user_id = message.from_user.id
-    users.add(user_id)
+    
+    if user_id not in users:
+        users.add(user_id)
 
     if message.text == "Начать перерыв":
         waiting_time.add(user_id)
@@ -207,7 +236,7 @@ async def handle(message: Message):
             "minutes": minutes
         }
 
-        await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", keyboard)
+        await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", reply_markup=keyboard)
 
         text = (
             f"🟡 Начал перерыв ({minutes} мин)\n"
@@ -243,6 +272,7 @@ async def handle(message: Message):
             now.strftime("%d.%m.%Y"),
             message.from_user.full_name,
             message.from_user.username or "без username",
+            user_id,
             start_time.strftime("%H:%M:%S"),
             now.strftime("%H:%M:%S"),
             minutes
@@ -259,7 +289,7 @@ async def handle(message: Message):
 
         del break_data[user_id]
 
-        await send_clean_message(user_id, "Перерыв завершён", keyboard)
+        await send_clean_message(user_id, "Перерыв завершён", reply_markup=keyboard)
 
     elif message.text == "Взять выходной":
 
@@ -430,6 +460,52 @@ async def select_day(callback: CallbackQuery):
             pass
 
     await callback.message.edit_text("✅ Выходной сохранён")
+
+    if user_id in calendar_messages:
+        del calendar_messages[user_id]
+
+
+@dp.message(F.text == "/users")
+async def show_users(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    if not users:
+        await message.answer("Нет пользователей")
+        return
+
+    text = "Пользователи:\n\n"
+
+    for u in users:
+        text += f"{u}\n"
+
+    await message.answer(text)
+
+
+@dp.message(F.text.startswith("/block"))
+async def block_user(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        user_id = int(message.text.split()[1])
+        blocked_users.add(user_id)
+        await message.answer(f"Заблокирован: {user_id}")
+    except:
+        await message.answer("Ошибка. Пример: /block 123456789")
+
+
+@dp.message(F.text.startswith("/unblock"))
+async def unblock_user(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        user_id = int(message.text.split()[1])
+        blocked_users.discard(user_id)
+        await message.answer(f"Разблокирован: {user_id}")
+    except:
+        await message.answer("Ошибка. Пример: /unblock 123456789")
 
 # ЗАПУСК
 async def main():
