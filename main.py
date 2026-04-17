@@ -42,7 +42,6 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 break_data = {}
-waiting_dayoff = set()
 waiting_time = set()
 
 keyboard = ReplyKeyboardMarkup(
@@ -55,6 +54,35 @@ keyboard = ReplyKeyboardMarkup(
     ],
     resize_keyboard=True
 )
+
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import CallbackQuery
+from aiogram.filters import Text
+
+def generate_calendar():
+    now = datetime.now()
+    month = now.month
+    year = now.year
+
+    buttons = []
+
+    for day in range(1, 32):
+        try:
+            date = datetime(year, month, day)
+        except:
+            continue
+
+        buttons.append(
+            InlineKeyboardButton(
+                text=f"{day}",
+                callback_data=f"day_{day}_{month}"
+            )
+        )
+
+    # разбиваем по 5 кнопок в ряд
+    keyboard = [buttons[i:i+5] for i in range(0, len(buttons), 5)]
+
+    return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 # СТАРТ
 @dp.message(CommandStart())
@@ -193,66 +221,11 @@ async def handle(message: Message):
         await message.answer("Перерыв завершён", reply_markup=keyboard)
 
     elif message.text == "Взять выходной":
-        waiting_dayoff.add(user_id)
-        await message.answer("Напиши дату в формате ДД.ММ (пример 25.04)")
 
-    elif user_id in waiting_dayoff:
-
-        try:
-            day, month = map(int, message.text.split("."))
-            year = datetime.now().year
-            selected_date = datetime(year, month, day)
-        except:
-            await message.answer("Неверный формат. Пример: 25.04")
-            return
-
-        waiting_dayoff.remove(user_id)
-
-        records = days_off_sheet.get_all_values()
-        user_id_str = str(user_id)
-
-        user_days = [
-            r for r in records
-            if len(r) > 5 and r[3] == user_id_str and r[5] == str(month)
-        ]
-
-        if len(user_days) >= 6:
-            await message.answer("У тебя уже 6 выходных в этом месяце")
-            return
-
-        same_day = [
-            r for r in records
-            if len(r) > 6 and r[4] == selected_date.strftime("%d.%m.%Y")
-        ]
-
-        if len(same_day) >= MAX_DAY_OFF:
-            await message.answer("На этот день уже нет мест")
-            return
-
-        days_off_sheet.append_row([
-            datetime.now().strftime("%d.%m.%Y"),
-            message.from_user.full_name,
-            message.from_user.username or "без username",
-            user_id,
-            selected_date.strftime("%d.%m.%Y"),
-            month,
-            TEAM_NAME
-        ])
-
-        remaining = MAX_DAY_OFF - len(same_day) - 1
-
-        text = (
-            f"[{TEAM_NAME}]\n"
-            f"📅 Взял выходной\n"
-            f"{message.from_user.full_name}\n"
-            f"Дата: {selected_date.strftime('%d.%m.%Y')}\n"
-            f"Осталось мест: {remaining}"
+         await message.answer(
+            "Выбери день:",
+            reply_markup=generate_calendar()
         )
-
-        await bot.send_message(ADMIN_ID, text)
-        await bot.send_message(OWNER_ID, text)
-
-        await message.answer("Выходной сохранён")
 
     elif message.text == "Мои выходные":
 
@@ -309,6 +282,69 @@ async def handle(message: Message):
                 text += f"{date_str} — 🟢 {left} мест\n"
 
         await message.answer(text)
+@dp.callback_query(Text(startswith="day_"))
+async def select_day(callback: CallbackQuery):
+
+    await callback.answer()
+
+    user_id = callback.from_user.id
+    data = callback.data.split("_")
+
+    day = int(data[1])
+    month = int(data[2])
+    year = datetime.now().year
+
+    selected_date = datetime(year, month, day)
+
+    records = days_off_sheet.get_all_values()
+    user_id_str = str(user_id)
+
+    # проверка 6 выходных
+    user_days = [
+        r for r in records
+        if len(r) > 5 and r[3] == user_id_str and int(r[5]) == month
+    ]
+
+    if len(user_days) >= 6:
+        await callback.message.answer("❌ У тебя уже 6 выходных в этом месяце")
+        return
+
+    # проверка 20%
+    same_day = [
+        r for r in records
+        if len(r) > 6 and r[4] == selected_date.strftime("%d.%m.%Y")
+    ]
+
+    if len(same_day) >= MAX_DAY_OFF:
+        await callback.message.answer("❌ На этот день уже нет мест")
+        return
+
+    # запись
+    days_off_sheet.append_row([
+        datetime.now().strftime("%d.%m.%Y"),
+        callback.from_user.full_name,
+        callback.from_user.username or "без username",
+        user_id,
+        selected_date.strftime("%d.%m.%Y"),
+        month,
+        TEAM_NAME
+    ])
+
+    remaining = MAX_DAY_OFF - len(same_day) - 1
+
+    text = (
+        f"[{TEAM_NAME}]\n"
+        f"📅 Взял выходной\n"
+        f"{callback.from_user.full_name}\n"
+        f"{selected_date.strftime('%d.%m.%Y')}\n"
+        f"Осталось мест: {remaining}"
+    )
+
+    await bot.send_message(ADMIN_ID, text)
+    await bot.send_message(OWNER_ID, text)
+
+    await callback.message.edit_text("✅ Выходной сохранён")
+
 # ЗАПУСК
 async def main():
     await dp.start_polling(bot)
