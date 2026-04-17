@@ -64,6 +64,8 @@ def generate_calendar():
     month = now.month
     year = now.year
 
+    records = days_off_sheet.get_all_values()
+
     buttons = []
 
     for day in range(1, 32):
@@ -72,14 +74,35 @@ def generate_calendar():
         except:
             continue
 
+        date_str = date.strftime("%d.%m.%Y")
+
+        same_day = [
+            r for r in records
+            if len(r) > 6 and r[4] == date_str
+        ]
+
+        taken = len(same_day)
+
+        # ❌ прошлые даты блокируем
+        if date.date() < now.date():
+            text = f"⛔ {day}"
+            callback = "ignore"
+        else:
+            if taken >= MAX_DAY_OFF:
+                text = f"🔴 {day}"
+                callback = "ignore"
+            else:
+                left = MAX_DAY_OFF - taken
+                text = f"🟢 {day}"
+                callback = f"day_{day}_{month}"
+
         buttons.append(
             InlineKeyboardButton(
-                text=f"{day}",
-                callback_data=f"day_{day}_{month}"
+                text=text,
+                callback_data=callback
             )
         )
 
-    # разбиваем по 5 кнопок в ряд
     keyboard = [buttons[i:i+5] for i in range(0, len(buttons), 5)]
 
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -282,6 +305,11 @@ async def handle(message: Message):
                 text += f"{date_str} — 🟢 {left} мест\n"
 
         await message.answer(text)
+
+@dp.callback_query(F.data == "ignore")
+async def ignore_click(callback: CallbackQuery):
+    await callback.answer("Недоступно", show_alert=False)
+    
 @dp.callback_query(F.data.startswith("day_"))
 async def select_day(callback: CallbackQuery):
 
