@@ -50,7 +50,8 @@ keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="Начать перерыв")],
         [KeyboardButton(text="Закончить перерыв")],
         [KeyboardButton(text="Взять выходной")],
-        [KeyboardButton(text="Мои выходные")]
+        [KeyboardButton(text="Мои выходные")],
+        [KeyboardButton(text="Свободные дни")]   # 👈 НОВАЯ
     ],
     resize_keyboard=True
 )
@@ -276,7 +277,38 @@ async def handle(message: Message):
         text += f"\nОсталось: {6 - len(user_days)}"
 
         await message.answer(text)
+        
+    elif message.text == "Свободные дни":
 
+        records = days_off_sheet.get_all_values()
+        now = datetime.now()
+        month = now.month
+        year = now.year
+
+        text = "Свободные дни:\n\n"
+
+        for day in range(1, 32):
+            try:
+                date = datetime(year, month, day)
+            except:
+                continue
+
+            date_str = date.strftime("%d.%m.%Y")
+
+            same_day = [
+                r for r in records
+                if len(r) > 6 and r[4] == date_str
+            ]
+
+            taken = len(same_day)
+
+            if taken >= MAX_DAY_OFF:
+                text += f"{date_str} — 🔴 занято\n"
+            else:
+                left = MAX_DAY_OFF - taken
+                text += f"{date_str} — 🟢 {left} мест\n"
+
+        await message.answer(text)
 # ЗАПУСК
 async def main():
     await dp.start_polling(bot)
