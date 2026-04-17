@@ -43,6 +43,7 @@ dp = Dispatcher()
 
 break_data = {}
 waiting_time = set()
+users = set()
 
 keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -159,6 +160,7 @@ async def break_control(user_id, minutes, name, username):
 @dp.message()
 async def handle(message: Message):
     user_id = message.from_user.id
+    users.add(user_id)
 
     if message.text == "Начать перерыв":
         waiting_time.add(user_id)
@@ -370,6 +372,13 @@ async def select_day(callback: CallbackQuery):
 
     await bot.send_message(ADMIN_ID, text)
     await bot.send_message(OWNER_ID, text)
+    for u in users:
+        if u == user_id:
+            continue
+        try:
+            await bot.send_message(u, text)
+        except:
+            pass
 
     await callback.message.edit_text("✅ Выходной сохранён")
 
