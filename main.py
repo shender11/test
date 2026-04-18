@@ -79,6 +79,7 @@ break_keyboard = ReplyKeyboardMarkup(
 days_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Взять выходной")],
+        [KeyboardButton(text="Отменить выходной")],
         [KeyboardButton(text="Мои выходные")],
         [KeyboardButton(text="Свободные дни")],
         [KeyboardButton(text="Назад")]
@@ -122,7 +123,11 @@ def generate_calendar():
     records = days_off_sheet.get_all_values()
     buttons = []
 
-    for day in range(1, 32):
+    import calendar
+
+    days_in_month = calendar.monthrange(year, month)[1]
+    
+    for day in range(1, days_in_month + 1):
         try:
             date = datetime(year, month, day)
         except:
@@ -243,11 +248,12 @@ async def break_control(user_id, minutes, name, username):
     if user_id in break_data and user_id not in blocked_users:
         await bot.send_message(user_id, "🚨 Ты уже опаздываешь на 5 минут!")
 
-    while user_id in break_data:
-        await asyncio.sleep(5 * 60)
+    while user_id in break_data and break_data[user_id]["active"]:
 
         if user_id in break_data and user_id not in blocked_users:
             await bot.send_message(user_id, "🚨 Ты всё ещё на перерыве! Вернись к работе!")
+
+        await asyncio.sleep(60)
 
 # ОСНОВНАЯ ЛОГИКА
 @dp.message()
@@ -322,7 +328,8 @@ async def handle(message: Message):
 
         break_data[user_id] = {
             "start": datetime.now(),
-            "minutes": minutes
+            "minutes": minutes,
+            "active": True
         }
 
         await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", reply_markup=break_keyboard)
@@ -376,6 +383,7 @@ async def handle(message: Message):
         await bot.send_message(ADMIN_ID, text)
         await bot.send_message(OWNER_ID, text)
 
+        break_data[user_id]["active"] = False
         del break_data[user_id]
 
         await send_clean_message(user_id, "Перерыв завершён", reply_markup=break_keyboard)
@@ -413,7 +421,7 @@ async def handle(message: Message):
 
         user_days = [
             r for r in records
-            if len(r) > 5 and r[3] == user_id_str and int(r[5]) == month
+            if len(r) > 5 and r[3] == user_id_str and r[5].isdigit() and int(r[5]) == month
         ]
 
         if not user_days:
@@ -428,6 +436,38 @@ async def handle(message: Message):
         text += f"\nОсталось: {6 - len(user_days)}"
 
         await send_clean_message(user_id, text)
+
+    elif message.text == "Отменить выходной":
+
+        records = days_off_sheet.get_all_values()
+        user_id_str = str(user_id)
+        month = datetime.now().month
+
+        user_days = [
+            r for r in records
+            if len(r) > 5 and r[3] == user_id_str and r[5].isdigit() and int(r[5]) == month
+        ]
+
+        if not user_days:
+            await send_clean_message(user_id, "У тебя нет выходных для отмены")
+            return
+
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+        buttons = []
+
+        for r in user_days:
+            date = r[4]
+            buttons.append([
+                InlineKeyboardButton(
+                    text=date,
+                    callback_data=f"cancel_{date}"
+                )
+            ])
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+
+        await send_clean_message(user_id, "Выбери выходной для отмены:", reply_markup=keyboard)
         
     elif message.text == "Свободные дни":
 
@@ -571,11 +611,11 @@ async def select_day(callback: CallbackQuery):
 
     records = days_off_sheet.get_all_values()
     user_id_str = str(user_id)
-
+    
     # 🔹 проверка 6 выходных
     user_days = [
         r for r in records
-        if len(r) > 5 and r[3] == user_id_str and int(r[5]) == month
+        if len(r) > 5 and r[3] == user_id_str and r[5].isdigit() and int(r[5]) == month
     ]
 
     if len(user_days) >= 6:
@@ -653,6 +693,40 @@ async def select_day(callback: CallbackQuery):
     if user_id in calendar_messages:
         del calendar_messages[user_id]
 
+@dp.callback_query(F.data.startswith("cancel_"))
+async def cancel_day(callback: CallbackQuery):
+
+    await callback.answer()
+
+    user_id = callback.from_user.id
+    date = callback.data.replace("cancel_", "")
+
+    records = days_off_sheet.get_all_values()
+
+    for i, r in enumerate(records):
+        if len(r) > 5 and r[3] == str(user_id) and r[4] == date:
+            days_off_sheet.delete_rows(i + 1)
+            break
+
+    text = (
+        f"❌ Отменил выходной\n"
+        f"@{callback.from_user.username if callback.from_user.username else 'без username'}\n"
+        f"{date}"
+    )
+
+    await bot.send_message(ADMIN_ID, text)
+    await bot.send_message(OWNER_ID, text)
+
+    for u in users:
+        if u == user_id:
+            continue
+        try:
+            await bot.send_message(u, text)
+        except:
+            pass
+
+    await callback.message.edit_text("✅ Выходной отменён")
+
 
 @dp.message(F.text == "/users")
 async def show_users(message: Message):
@@ -695,6 +769,31 @@ async def unblock_user(message: Message):
         await message.answer(f"Разблокирован: {user_id}")
     except:
         await message.answer("Ошибка. Пример: /unblock 123456789")
+
+@dp.message(F.text.startswith("/delete"))
+async def delete_user(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    try:
+        user_id = int(message.text.split()[1])
+
+        # удалить из памяти
+        users.discard(user_id)
+        blocked_users.discard(user_id)
+
+        # удалить из таблицы
+        records = users_sheet.get_all_values()
+
+        for i, r in enumerate(records):
+            if r and r[0] == str(user_id):
+                users_sheet.delete_rows(i + 1)
+                break
+
+        await message.answer(f"Удалён: {user_id}")
+
+    except:
+        await message.answer("Ошибка. Пример: /delete 123456789")
 
 # ЗАПУСК
 async def main():
