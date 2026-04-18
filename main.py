@@ -500,7 +500,11 @@ async def handle(message: Message):
                 left = limit - taken
                 text += f"{date_str} — 🟢 {left} мест\n"
 
-        await send_clean_message(user_id, text)
+        await send_clean_message(
+            user_id,
+            text,
+            reply_markup=days_keyboard
+        )
 
     # 💰 ЗАРПЛАТА
     elif message.text == "Моя зарплата":
