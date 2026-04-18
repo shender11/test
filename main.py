@@ -265,7 +265,8 @@ async def handle(message: Message):
         "Перерывы", "Выходные", "Зарплата",
         "Назад",
         "Начать перерыв", "Закончить перерыв",
-        "Взять выходной", "Мои выходные", "Свободные дни",
+        "Взять выходной", "Отменить выходной",
+        "Мои выходные", "Свободные дни",
         "Моя зарплата"
     ]:
 
@@ -291,7 +292,7 @@ async def handle(message: Message):
         await send_clean_message(user_id, "Главное меню", reply_markup=main_keyboard)
         return
         
-    if message.text and message.text.startswith("/"):
+    if message.text and message.text.startswith("/") and message.text != "/start":
         return
     
     if message.from_user.id in blocked_users:
@@ -476,14 +477,13 @@ async def handle(message: Message):
         month = now.month
         year = now.year
 
+        import calendar
+        days_in_month = calendar.monthrange(year, month)[1]
+
         text = "Свободные дни:\n\n"
 
-        for day in range(1, 32):
-            try:
-                date = datetime(year, month, day)
-            except:
-                continue
-
+        for day in range(1, days_in_month + 1):
+            date = datetime(year, month, day)
             date_str = date.strftime("%d.%m.%Y")
 
             same_day = [
@@ -492,7 +492,6 @@ async def handle(message: Message):
             ]
 
             taken = len(same_day)
-
             limit = get_team_limit()
 
             if taken >= limit:
