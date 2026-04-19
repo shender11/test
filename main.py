@@ -538,7 +538,6 @@ async def handle(message: Message):
             "Выбери длительность перерыва:",
             reply_markup=break_time_keyboard
         )
-
         return
 
     elif message.text == "Закончить перерыв":
