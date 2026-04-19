@@ -155,6 +155,7 @@ def get_today_break_stats(user_id):
 
     return breaks_count, total_minutes
 
+
 def get_today_break_type_stats(user_id):
     records = sheet.get_all_values()
     today_str = datetime.now().strftime("%d.%m.%Y")
@@ -176,17 +177,33 @@ def get_today_break_type_stats(user_id):
     return breaks_15, breaks_30
 
 
+def get_today_planned_break_minutes(user_id):
+    records = sheet.get_all_values()
+    today_str = datetime.now().strftime("%d.%m.%Y")
+
+    total_planned_minutes = 0
+
+    for r in records:
+        if len(r) > 7 and r[0] == today_str and r[2] == str(user_id):
+            try:
+                total_planned_minutes += int(r[7])
+            except:
+                pass
+
+    return total_planned_minutes
+
+
 def check_break_type_limit(user_id, minutes):
-    breaks_15, breaks_30 = get_today_break_type_stats(user_id)
+    total_planned_minutes = get_today_planned_break_minutes(user_id)
+    remaining_minutes = 60 - total_planned_minutes
 
-    if minutes == 15 and breaks_15 >= 4:
-        return False, "❌ Ты уже использовал максимум 4 перерыва по 15 минут за сегодня"
+    if remaining_minutes <= 0:
+        return False, "❌ Ты уже использовал весь лимит перерывов за сегодня: 60 минут"
 
-    if minutes == 30 and breaks_30 >= 2:
-        return False, "❌ Ты уже использовал максимум 2 перерыва по 30 минут за сегодня"
+    if minutes > remaining_minutes:
+        return False, f"❌ У тебя осталось только {remaining_minutes} мин перерыва на сегодня"
 
     return True, None
-
 
 
 def save_active_break(user):
@@ -431,6 +448,8 @@ async def handle(message: Message):
 
         breaks_count, total_minutes = get_today_break_stats(user_id)
         breaks_15, breaks_30 = get_today_break_type_stats(user_id)
+        planned_minutes = get_today_planned_break_minutes(user_id)
+        remaining_break_minutes = max(0, 60 - planned_minutes)
 
         records = days_off_sheet.get_all_values()
         month = datetime.now().month
@@ -453,13 +472,15 @@ async def handle(message: Message):
             f"Username: @{message.from_user.username if message.from_user.username else 'без username'}\n"
             f"Осталось выходных: {remaining_days_off}\n"
             f"Перерывов сегодня: {breaks_count}\n"
-            f"Из них по 15 мин: {breaks_15}/4\n"
-            f"Из них по 30 мин: {breaks_30}/2\n"
-            f"Минут на перерыве сегодня: {total_minutes}"
+            f"Из них по 15 мин: {breaks_15}\n"
+            f"Из них по 30 мин: {breaks_30}\n"
+            f"Минут на перерыве сегодня: {total_minutes}\n"
+            f"Осталось минут перерыва: {remaining_break_minutes}"
         )
 
         await send_clean_message(user_id, text, reply_markup=main_keyboard)
         return
+
 
     elif message.text == "Назад":
         waiting_time.discard(user_id)
@@ -880,7 +901,18 @@ async def select_day(callback: CallbackQuery):
         except:
             pass
 
-    await callback.message.edit_text("✅ Выходной сохранён")
+    try:
+        await callback.message.delete()
+    except:
+        pass
+
+    await bot.send_message(
+        user_id,
+        "✅ Выходной сохранён",
+        reply_markup=days_keyboard
+    )
+
+
 
     if user_id in calendar_messages:
         del calendar_messages[user_id]
@@ -917,7 +949,18 @@ async def cancel_day(callback: CallbackQuery):
         except:
             pass
 
-    await callback.message.edit_text("✅ Выходной отменён")
+    try:
+        await callback.message.delete()
+    except:
+        pass
+
+    await bot.send_message(
+        user_id,
+        "✅ Выходной отменён",
+        reply_markup=days_keyboard
+    )
+
+
 
 
 @dp.message(F.text == "/users")
