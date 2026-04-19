@@ -36,6 +36,8 @@ sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").sheet
 days_off_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("DaysOff")
 users_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("Users")
 settings_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("Settings")
+active_breaks_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("ActiveBreaks")
+
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -62,13 +64,16 @@ try:
             users.add(int(r[1]))
 except:
     pass
+    restore_active_breaks()
+
 
 # 🔹 ГЛАВНОЕ МЕНЮ
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="Перерывы")],
         [KeyboardButton(text="Выходные")],
-        [KeyboardButton(text="Зарплата")]
+        [KeyboardButton(text="Зарплата")],
+        [KeyboardButton(text="Мой профиль")]
     ],
     resize_keyboard=True
 )
@@ -89,7 +94,6 @@ days_keyboard = ReplyKeyboardMarkup(
         [KeyboardButton(text="Взять выходной")],
         [KeyboardButton(text="Отменить выходной")],
         [KeyboardButton(text="Мои выходные")],
-        [KeyboardButton(text="Свободные дни")],
         [KeyboardButton(text="Назад")]
     ],
     resize_keyboard=True
@@ -122,6 +126,109 @@ def get_team_limit():
         pass
 
     return 1
+
+def get_setting_value(key, default_value):
+    try:
+        records = settings_sheet.get_all_values()
+        for r in records:
+            if len(r) > 1 and r[0] == key:
+                return int(r[1])
+    except:
+        pass
+    return default_value
+
+
+def get_today_break_stats(user_id):
+    records = sheet.get_all_values()
+    today_str = datetime.now().strftime("%d.%m.%Y")
+
+    breaks_count = 0
+    total_minutes = 0
+
+    for r in records:
+        if len(r) > 6 and r[0] == today_str and r[2] == str(user_id):
+            breaks_count += 1
+            try:
+                total_minutes += int(r[6])
+            except:
+                pass
+
+    return breaks_count, total_minutes
+
+
+def save_active_break(user):
+    try:
+        records = active_breaks_sheet.get_all_values()
+
+        for i, r in enumerate(records):
+            if len(r) > 0 and r[0] == str(user.id):
+                active_breaks_sheet.delete_rows(i + 1)
+                break
+
+        active_breaks_sheet.append_row([
+            user.id,
+            user.full_name,
+            user.username or "без username",
+            datetime.now().strftime("%d.%m.%Y %H:%M:%S"),
+            break_data[user.id]["minutes"]
+        ])
+    except:
+        pass
+
+
+def remove_active_break(user_id):
+    try:
+        records = active_breaks_sheet.get_all_values()
+        for i, r in enumerate(records):
+            if len(r) > 0 and r[0] == str(user_id):
+                active_breaks_sheet.delete_rows(i + 1)
+                break
+    except:
+        pass
+
+
+def restore_active_breaks():
+    try:
+        records = active_breaks_sheet.get_all_values()
+        now = datetime.now()
+
+        for r in records:
+            if len(r) < 5:
+                continue
+
+            try:
+                user_id = int(r[0])
+                start_time = datetime.strptime(r[3], "%d.%m.%Y %H:%M:%S")
+                minutes = int(r[4])
+
+                break_data[user_id] = {
+                    "start": start_time,
+                    "minutes": minutes,
+                    "active": True,
+                    "name": r[1],
+                    "username": r[2] if r[2] != "без username" else None
+                }
+            except:
+                pass
+    except:
+        pass
+
+
+def check_break_limits(user_id):
+    breaks_count, total_minutes = get_today_break_stats(user_id)
+
+    max_breaks = get_setting_value("max_breaks_per_day", 3)
+    max_minutes = get_setting_value("max_break_minutes_per_day", 30)
+
+    return {
+        "breaks_count": breaks_count,
+        "total_minutes": total_minutes,
+        "max_breaks": max_breaks,
+        "max_minutes": max_minutes,
+        "breaks_exceeded": breaks_count >= max_breaks,
+        "minutes_exceeded": total_minutes >= max_minutes
+    }
+
 
 def generate_calendar():
     now = datetime.now()
@@ -226,43 +333,35 @@ async def break_control(user_id, minutes, name, username):
     if user_id in blocked_users:
         return
 
-    if minutes > 3:
-        await asyncio.sleep((minutes - 3) * 60)
+    if minutes > 5:
+        await asyncio.sleep((minutes - 5) * 60)
 
         if user_id in break_data and user_id not in blocked_users:
-            await bot.send_message(user_id, "⏳ До конца перерыва осталось 3 минуты")
+            await bot.send_message(user_id, "⏳ До конца перерыва осталось 5 минут")
 
-        await asyncio.sleep(3 * 60)
+        await asyncio.sleep(5 * 60)
     else:
         await asyncio.sleep(minutes * 60)
 
-    if user_id in break_data and user_id not in blocked_users:
-        text = (
-            f"🚨 ОПОЗДАНИЕ (+1 мин)\n"
+    delay_minutes = 1
+
+    while user_id in break_data and break_data[user_id]["active"] and user_id not in blocked_users:
+        admin_text = (
+            f"🚨 ЗАДЕРЖИВАЕТСЯ НА ПЕРЕРЫВЕ, СРОЧНО ЗВОНИ!\n"
             f"{name}\n"
-            f"@{username if username else 'без username'}"
+            f"@{username if username else 'без username'}\n"
+            f"Опоздание: {delay_minutes} мин"
         )
 
-        await bot.send_message(ADMIN_ID, text)
-        await bot.send_message(OWNER_ID, text)
-        await bot.send_message(user_id, "🚨 Ты опоздал на 1 минуту!")
+        await bot.send_message(user_id, "🚨 Перерыв окончен! Вернись к работе!")
+        await bot.send_message(ADMIN_ID, admin_text)
+        await bot.send_message(OWNER_ID, admin_text)
 
-    await asyncio.sleep(2 * 60)
-
-    if user_id in break_data and user_id not in blocked_users:
-        await bot.send_message(user_id, "🚨 Ты уже опаздываешь на 3 минуты!")
-
-    await asyncio.sleep(2 * 60)
-
-    if user_id in break_data and user_id not in blocked_users:
-        await bot.send_message(user_id, "🚨 Ты уже опаздываешь на 5 минут!")
-
-    while user_id in break_data and break_data[user_id]["active"]:
-
-        if user_id in break_data and user_id not in blocked_users:
-            await bot.send_message(user_id, "🚨 Ты всё ещё на перерыве! Вернись к работе!")
-
+        delay_minutes += 1
         await asyncio.sleep(60)
+
+
+
 
 # ОСНОВНАЯ ЛОГИКА
 @dp.message()
@@ -271,11 +370,11 @@ async def handle(message: Message):
     user_id = message.from_user.id
 
     if message.text in [
-        "Перерывы", "Выходные", "Зарплата",
+        "Перерывы", "Выходные", "Зарплата", "Мой профиль",
         "Назад",
         "Начать перерыв", "Закончить перерыв",
         "Взять выходной", "Отменить выходной",
-        "Мои выходные", "Свободные дни",
+        "Мои выходные",
         "Моя зарплата"
     ]:
 
@@ -296,6 +395,37 @@ async def handle(message: Message):
     elif message.text == "Зарплата":
         await send_clean_message(user_id, "Меню зарплаты", reply_markup=salary_keyboard)
         return
+
+        elif message.text == "Мой профиль":
+        breaks_count, total_minutes = get_today_break_stats(user_id)
+
+        records = days_off_sheet.get_all_values()
+        month = datetime.now().month
+        user_days = []
+
+        for r in records:
+            if len(r) > 2 and r[2] == str(user_id):
+                try:
+                    off_date = datetime.strptime(r[1], "%d.%m.%Y")
+                    if off_date.month == month:
+                        user_days.append(r)
+                except:
+                    pass
+
+        remaining_days_off = 6 - len(user_days)
+
+        text = (
+            f"👤 ТВОЙ ПРОФИЛЬ\n\n"
+            f"Имя: {message.from_user.full_name}\n"
+            f"Username: @{message.from_user.username if message.from_user.username else 'без username'}\n"
+            f"Осталось выходных: {remaining_days_off}\n"
+            f"Перерывов сегодня: {breaks_count}\n"
+            f"Минут на перерыве сегодня: {total_minutes}"
+        )
+
+        await send_clean_message(user_id, text, reply_markup=main_keyboard)
+        return
+
 
     elif message.text == "Назад":
         await send_clean_message(user_id, "Главное меню", reply_markup=main_keyboard)
@@ -320,8 +450,13 @@ async def handle(message: Message):
             pass
 
     if message.text == "Начать перерыв":
-        waiting_time.add(user_id)
-        await send_clean_message(user_id, "Введи длительность перерыва (максимум 30 минут)")
+    if user_id in break_data and break_data[user_id]["active"]:
+        await send_clean_message(user_id, "❗ У тебя уже есть активный перерыв")
+        return
+
+    waiting_time.add(user_id)
+    await send_clean_message(user_id, "Введи длительность перерыва (максимум 30 минут)")
+
 
     elif user_id in waiting_time:
 
@@ -339,13 +474,37 @@ async def handle(message: Message):
             await send_clean_message(user_id, "❗ Некорректное значение")
             return
 
+        limits = check_break_limits(user_id)
+
+        if limits["breaks_exceeded"]:
+            waiting_time.remove(user_id)
+            await send_clean_message(
+                user_id,
+                f"❌ Ты уже использовал максимум перерывов за сегодня: {limits['max_breaks']}"
+            )
+            return
+
+        if limits["minutes_exceeded"]:
+            waiting_time.remove(user_id)
+            await send_clean_message(
+                user_id,
+                f"❌ Ты уже использовал максимум минут перерыва за сегодня: {limits['max_minutes']}"
+            )
+            return
+
+
         waiting_time.remove(user_id)
 
         break_data[user_id] = {
             "start": datetime.now(),
             "minutes": minutes,
-            "active": True
+            "active": True,
+            "name": message.from_user.full_name,
+            "username": message.from_user.username
         }
+        save_active_break(message.from_user)
+
+
 
         await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", reply_markup=break_keyboard)
 
@@ -389,6 +548,22 @@ async def handle(message: Message):
             minutes
         ])
 
+        breaks_count, total_minutes = get_today_break_stats(user_id)
+        max_breaks = get_setting_value("max_breaks_per_day", 3)
+        max_minutes = get_setting_value("max_break_minutes_per_day", 30)
+
+        if breaks_count > max_breaks or total_minutes > max_minutes:
+            alert_text = (
+                f"⚠️ ПРЕВЫШЕН ЛИМИТ ПЕРЕРЫВОВ\n"
+                f"{message.from_user.full_name}\n"
+                f"@{message.from_user.username if message.from_user.username else 'без username'}\n"
+                f"Перерывов сегодня: {breaks_count}\n"
+                f"Минут сегодня: {total_minutes}"
+            )
+            await bot.send_message(ADMIN_ID, alert_text)
+            await bot.send_message(OWNER_ID, alert_text)
+
+
 
         text = (
             f"🟢 Закончил перерыв\n"
@@ -400,7 +575,9 @@ async def handle(message: Message):
         await bot.send_message(OWNER_ID, text)
 
         break_data[user_id]["active"] = False
+        remove_active_break(user_id)
         del break_data[user_id]
+
 
         await send_clean_message(user_id, "Перерыв завершён", reply_markup=break_keyboard)
 
@@ -496,43 +673,7 @@ async def handle(message: Message):
 
         await send_clean_message(user_id, "Выбери выходной для отмены:", reply_markup=keyboard)
         
-    elif message.text == "Свободные дни":
-
-        records = days_off_sheet.get_all_values()
-        now = datetime.now()
-        month = now.month
-        year = now.year
-
-        import calendar
-        days_in_month = calendar.monthrange(year, month)[1]
-
-        text = "Свободные дни:\n\n"
-
-        for day in range(1, days_in_month + 1):
-            date = datetime(year, month, day)
-            date_str = date.strftime("%d.%m.%Y")
-
-            same_day = [
-                r for r in records
-                if len(r) > 1 and r[1] == date_str
-            ]
-
-
-            taken = len(same_day)
-            limit = get_team_limit()
-
-            if taken >= limit:
-                text += f"{date_str} — 🔴 занято\n"
-            else:
-                left = limit - taken
-                text += f"{date_str} — 🟢 {left} мест\n"
-
-        await send_clean_message(
-            user_id,
-            text,
-            reply_markup=days_keyboard
-        )
-
+   
     # 💰 ЗАРПЛАТА
     elif message.text == "Моя зарплата":
         salary_waiting[user_id] = {"step": "balance"}
@@ -540,7 +681,13 @@ async def handle(message: Message):
 
     elif user_id in salary_waiting:
 
+        try:
+            await message.delete()
+        except:
+            pass
+
         step = salary_waiting[user_id]["step"]
+
 
         # 1. баланс
         if step == "balance":
@@ -834,7 +981,18 @@ async def delete_user(message: Message):
 
 # ЗАПУСК
 async def main():
+    for user_id, data in break_data.items():
+        asyncio.create_task(
+            break_control(
+                user_id,
+                data["minutes"],
+                data.get("name", "Без имени"),
+                data.get("username")
+            )
+        )
+
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     asyncio.run(main())
