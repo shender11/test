@@ -340,13 +340,16 @@ async def send_clean_message(user_id, text, reply_markup=None):
 # СТАРТ
 @dp.message(CommandStart())
 async def start(message: Message):
-    waiting_time.discard(message.from_user.id)
-    salary_waiting.pop(message.from_user.id, None)
+    user_id = message.from_user.id
+    waiting_time.discard(user_id)
+    salary_waiting.pop(user_id, None)
+
     await send_clean_message(
-        message.from_user.id,
+        user_id,
         "Главное меню",
         reply_markup=main_keyboard
     )
+
 
 
 
@@ -389,7 +392,6 @@ async def break_control(user_id, minutes, name, username):
 # ОСНОВНАЯ ЛОГИКА
 @dp.message()
 async def handle(message: Message):
-
     user_id = message.from_user.id
 
     if message.text in [
@@ -400,13 +402,11 @@ async def handle(message: Message):
         "Мои выходные",
         "Моя зарплата"
     ]:
-
         try:
             await message.delete()
         except:
             pass
 
-    # 🔹 МЕНЮ
     if message.text == "Перерывы":
         waiting_time.discard(user_id)
         salary_waiting.pop(user_id, None)
@@ -421,16 +421,16 @@ async def handle(message: Message):
 
     elif message.text == "Зарплата":
         waiting_time.discard(user_id)
+        salary_waiting.pop(user_id, None)
         await send_clean_message(user_id, "Меню зарплаты", reply_markup=salary_keyboard)
         return
 
     elif message.text == "Мой профиль":
         waiting_time.discard(user_id)
         salary_waiting.pop(user_id, None)
+
         breaks_count, total_minutes = get_today_break_stats(user_id)
         breaks_15, breaks_30 = get_today_break_type_stats(user_id)
-
-
 
         records = days_off_sheet.get_all_values()
         month = datetime.now().month
@@ -458,10 +458,8 @@ async def handle(message: Message):
             f"Минут на перерыве сегодня: {total_minutes}"
         )
 
-
         await send_clean_message(user_id, text, reply_markup=main_keyboard)
         return
-
 
     elif message.text == "Назад":
         waiting_time.discard(user_id)
@@ -469,14 +467,12 @@ async def handle(message: Message):
         await send_clean_message(user_id, "Главное меню", reply_markup=main_keyboard)
         return
 
-
-        
     if message.text and message.text.startswith("/") and message.text != "/start":
         return
-    
-    if message.from_user.id in blocked_users:
+
+    if user_id in blocked_users:
         return
-        
+
     if user_id not in users:
         users.add(user_id)
         try:
@@ -490,75 +486,28 @@ async def handle(message: Message):
             pass
 
     if message.text == "Начать перерыв":
+        salary_waiting.pop(user_id, None)
+
         if user_id in break_data and break_data[user_id]["active"]:
             await send_clean_message(user_id, "❗ У тебя уже есть активный перерыв", reply_markup=break_keyboard)
             return
 
         waiting_time.add(user_id)
-        await send_clean_message(user_id, "Введи длительность перерыва: 15 или 30 минут", reply_markup=break_keyboard)
-
-
-
-    elif user_id in waiting_time:
-
-        if not message.text or not message.text.isdigit():
-            await send_clean_message(user_id, "❗ Введи число", reply_markup=break_keyboard)
-            return
-
-        minutes = int(message.text)
-
-        if minutes not in [15, 30]:
-            await send_clean_message(user_id, "❗ Можно выбрать только 15 или 30 минут", reply_markup=break_keyboard)
-            return
-
-
-        allowed, error_text = check_break_type_limit(user_id, minutes)
-
-        if not allowed:
-            waiting_time.remove(user_id)
-            await send_clean_message(user_id, error_text, reply_markup=break_keyboard)
-            return
-
-        waiting_time.remove(user_id)
-
-        break_data[user_id] = {
-            "start": datetime.now(),
-            "minutes": minutes,
-            "active": True,
-            "name": message.from_user.full_name,
-            "username": message.from_user.username
-        }
-        save_active_break(message.from_user)
-
-
-
-        await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", reply_markup=break_keyboard)
-
-        text = (
-            f"🟡 Начал перерыв ({minutes} мин)\n"
-            f"{message.from_user.full_name}"
+        await send_clean_message(
+            user_id,
+            "Введи длительность перерыва: 15 или 30 минут",
+            reply_markup=break_keyboard
         )
-
-        await bot.send_message(ADMIN_ID, text)
-        await bot.send_message(OWNER_ID, text)
-
-        asyncio.create_task(
-            break_control(
-                user_id,
-                minutes,
-                message.from_user.full_name,
-                message.from_user.username
-            )
-        )
+        return
 
     elif message.text == "Закончить перерыв":
+        salary_waiting.pop(user_id, None)
 
         if user_id not in break_data:
             await send_clean_message(user_id, "Нет активного перерыва", reply_markup=break_keyboard)
             return
 
         data = break_data[user_id]
-
         now = datetime.now()
         start_time = data["start"]
         duration = now - start_time
@@ -575,9 +524,6 @@ async def handle(message: Message):
             data["minutes"]
         ])
 
-
-
-
         text = (
             f"🟢 Закончил перерыв\n"
             f"{message.from_user.full_name}\n"
@@ -591,12 +537,12 @@ async def handle(message: Message):
         remove_active_break(user_id)
         del break_data[user_id]
 
-
         await send_clean_message(user_id, "Перерыв завершён", reply_markup=break_keyboard)
+        return
 
     elif message.text == "Взять выходной":
-
-        user_id = message.from_user.id
+        waiting_time.discard(user_id)
+        salary_waiting.pop(user_id, None)
 
         if user_id in calendar_messages:
             try:
@@ -618,8 +564,11 @@ async def handle(message: Message):
         )
 
         calendar_messages[user_id] = msg.message_id
+        return
 
     elif message.text == "Мои выходные":
+        waiting_time.discard(user_id)
+        salary_waiting.pop(user_id, None)
 
         records = days_off_sheet.get_all_values()
         user_id_str = str(user_id)
@@ -636,19 +585,20 @@ async def handle(message: Message):
                     pass
 
         if not user_days:
-            await send_clean_message(user_id, "У тебя пока нет выходных")
+            await send_clean_message(user_id, "У тебя пока нет выходных", reply_markup=days_keyboard)
             return
 
         text = "Твои выходные:\n\n"
-
         for r in user_days:
             text += f"{r[1]}\n"
 
         text += f"\nОсталось: {6 - len(user_days)}"
-
-        await send_clean_message(user_id, text)
+        await send_clean_message(user_id, text, reply_markup=days_keyboard)
+        return
 
     elif message.text == "Отменить выходной":
+        waiting_time.discard(user_id)
+        salary_waiting.pop(user_id, None)
 
         records = days_off_sheet.get_all_values()
         user_id_str = str(user_id)
@@ -664,15 +614,11 @@ async def handle(message: Message):
                 except:
                     pass
 
-
         if not user_days:
-            await send_clean_message(user_id, "У тебя нет выходных для отмены")
+            await send_clean_message(user_id, "У тебя нет выходных для отмены", reply_markup=days_keyboard)
             return
 
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
         buttons = []
-
         for r in user_days:
             date = r[1]
             buttons.append([
@@ -683,19 +629,16 @@ async def handle(message: Message):
             ])
 
         keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
-
         await send_clean_message(user_id, "Выбери выходной для отмены:", reply_markup=keyboard)
-        
-   
-    # 💰 ЗАРПЛАТА
+        return
+
     elif message.text == "Моя зарплата":
         waiting_time.discard(user_id)
         salary_waiting[user_id] = {"step": "balance"}
         await send_clean_message(user_id, "Введи баланс ($)", reply_markup=salary_keyboard)
-
+        return
 
     elif user_id in salary_waiting:
-
         try:
             await message.delete()
         except:
@@ -703,52 +646,47 @@ async def handle(message: Message):
 
         step = salary_waiting[user_id]["step"]
 
-
-        # 1. баланс
         if step == "balance":
             try:
                 balance = float(message.text)
             except:
-                await send_clean_message(user_id, "Введи число")
+                await send_clean_message(user_id, "Введи число", reply_markup=salary_keyboard)
                 return
 
             salary_waiting[user_id]["balance"] = balance
             salary_waiting[user_id]["step"] = "percent"
+            await send_clean_message(user_id, "Введи процент (например 45)", reply_markup=salary_keyboard)
+            return
 
-            await send_clean_message(user_id, "Введи процент (например 45)")
-
-        # 2. процент
         elif step == "percent":
             try:
                 percent = float(message.text)
             except:
-                await send_clean_message(user_id, "Введи число")
+                await send_clean_message(user_id, "Введи число", reply_markup=salary_keyboard)
                 return
 
             salary_waiting[user_id]["percent"] = percent
             salary_waiting[user_id]["step"] = "gifts"
+            await send_clean_message(user_id, "Введи сумму подарков ($)", reply_markup=salary_keyboard)
+            return
 
-            await send_clean_message(user_id, "Введи сумму подарков ($)")
-
-        # 3. подарки
         elif step == "gifts":
             try:
                 gifts = float(message.text)
             except:
-                await send_clean_message(user_id, "Введи число")
+                await send_clean_message(user_id, "Введи число", reply_markup=salary_keyboard)
                 return
 
             salary_waiting[user_id]["gifts"] = gifts
             salary_waiting[user_id]["step"] = "gifts_percent"
+            await send_clean_message(user_id, "Введи процент с подарков (20-25)", reply_markup=salary_keyboard)
+            return
 
-            await send_clean_message(user_id, "Введи процент с подарков (20-25)")
-
-        # 4. финал
         elif step == "gifts_percent":
             try:
                 gifts_percent = float(message.text)
             except:
-                await send_clean_message(user_id, "Введи число")
+                await send_clean_message(user_id, "Введи число", reply_markup=salary_keyboard)
                 return
 
             data = salary_waiting[user_id]
@@ -757,12 +695,10 @@ async def handle(message: Message):
             percent = data["percent"]
             gifts = data["gifts"]
 
-            # баланс
             clean_balance = balance * (percent / 100)
             cashout_balance = clean_balance * 0.04
             final_balance = clean_balance - cashout_balance
 
-            # подарки
             clean_gifts = gifts * (gifts_percent / 100)
             cashout_gifts = clean_gifts * 0.04
             final_gifts = clean_gifts - cashout_gifts
@@ -782,6 +718,64 @@ async def handle(message: Message):
             )
 
             del salary_waiting[user_id]
+            return
+
+    elif user_id in waiting_time:
+        try:
+            await message.delete()
+        except:
+            pass
+
+        if not message.text or not message.text.isdigit():
+            await send_clean_message(user_id, "❗ Введи число", reply_markup=break_keyboard)
+            return
+
+        minutes = int(message.text)
+
+        if minutes not in [15, 30]:
+            await send_clean_message(user_id, "❗ Можно выбрать только 15 или 30 минут", reply_markup=break_keyboard)
+            return
+
+        allowed, error_text = check_break_type_limit(user_id, minutes)
+
+        if not allowed:
+            waiting_time.remove(user_id)
+            await send_clean_message(user_id, error_text, reply_markup=break_keyboard)
+            return
+
+        waiting_time.remove(user_id)
+
+        break_data[user_id] = {
+            "start": datetime.now(),
+            "minutes": minutes,
+            "active": True,
+            "name": message.from_user.full_name,
+            "username": message.from_user.username
+        }
+        save_active_break(message.from_user)
+
+        await send_clean_message(user_id, f"Перерыв начат на {minutes} мин", reply_markup=break_keyboard)
+
+        text = (
+            f"🟡 Начал перерыв ({minutes} мин)\n"
+            f"{message.from_user.full_name}"
+        )
+
+        await bot.send_message(ADMIN_ID, text)
+        await bot.send_message(OWNER_ID, text)
+
+        asyncio.create_task(
+            break_control(
+                user_id,
+                minutes,
+                message.from_user.full_name,
+                message.from_user.username
+            )
+        )
+        return
+
+
+    
 
 @dp.callback_query(F.data == "ignore")
 async def ignore_click(callback: CallbackQuery):
