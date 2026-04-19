@@ -526,7 +526,7 @@ async def break_control(user_id, minutes, name, username):
 
 
 # ОСНОВНАЯ ЛОГИКА
-@dp.message()
+@dp.message(~F.text.startswith("/"))
 async def handle(message: Message):
     user_id = message.from_user.id
 
@@ -607,9 +607,6 @@ async def handle(message: Message):
         waiting_time.discard(user_id)
         salary_waiting.pop(user_id, None)
         await send_clean_message(user_id, "Главное меню", reply_markup=main_keyboard)
-        return
-
-    if message.text and message.text.startswith("/") and message.text != "/start":
         return
 
     if user_id in blocked_users:
