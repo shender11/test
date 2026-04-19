@@ -475,24 +475,24 @@ async def handle(message: Message):
 
     if message.text == "Начать перерыв":
         if user_id in break_data and break_data[user_id]["active"]:
-            await send_clean_message(user_id, "❗ У тебя уже есть активный перерыв")
+            await send_clean_message(user_id, "❗ У тебя уже есть активный перерыв", reply_markup=break_keyboard)
             return
 
         waiting_time.add(user_id)
-        await send_clean_message(user_id, "Введи длительность перерыва: 15 или 30 минут")
+        await send_clean_message(user_id, "Введи длительность перерыва: 15 или 30 минут", reply_markup=break_keyboard)
 
 
 
     elif user_id in waiting_time:
 
         if not message.text or not message.text.isdigit():
-            await send_clean_message(user_id, "❗ Введи число")
+            await send_clean_message(user_id, "❗ Введи число", reply_markup=break_keyboard)
             return
 
         minutes = int(message.text)
 
         if minutes not in [15, 30]:
-            await send_clean_message(user_id, "❗ Можно выбрать только 15 или 30 минут")
+            await send_clean_message(user_id, "❗ Можно выбрать только 15 или 30 минут", reply_markup=break_keyboard)
             return
 
 
@@ -500,12 +500,8 @@ async def handle(message: Message):
 
         if not allowed:
             waiting_time.remove(user_id)
-            await send_clean_message(user_id, error_text)
+            await send_clean_message(user_id, error_text, reply_markup=break_keyboard)
             return
-
-
-
-
 
         waiting_time.remove(user_id)
 
@@ -542,7 +538,7 @@ async def handle(message: Message):
     elif message.text == "Закончить перерыв":
 
         if user_id not in break_data:
-            await send_clean_message(user_id, "Нет активного перерыва")
+            await send_clean_message(user_id, "Нет активного перерыва", reply_markup=break_keyboard)
             return
 
         data = break_data[user_id]
