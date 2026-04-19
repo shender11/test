@@ -13,7 +13,9 @@ from google.oauth2.service_account import Credentials
 # 🔴 НАСТРОЙКИ
 ADMIN_ID = 444097934
 OWNER_ID = 1826030998
-TOKEN = "8697726930:AAFIPp8AktdwjdwEX-G3J6xXwZxxkmenCUU"
+TOKEN = ("8697726930:AAFIPp8AktdwjdwEX-G3J6xXwZxxkmenCUU")
+
+
 
 # Google доступ
 scope = [
@@ -38,6 +40,12 @@ settings_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+def get_telegram_link(user):
+    if user.username:
+        return f"https://t.me/{user.username}"
+    return f"tg://user?id={user.id}"
+
+
 break_data = {}
 waiting_time = set()
 users = set()
@@ -50,8 +58,8 @@ salary_waiting = {}
 try:
     records = users_sheet.get_all_values()
     for r in records:
-        if r:
-            users.add(int(r[0]))
+        if len(r) > 1 and r[1].isdigit():
+            users.add(int(r[1]))
 except:
     pass
 
@@ -137,8 +145,9 @@ def generate_calendar():
 
         same_day = [
             r for r in records
-            if len(r) > 5 and r[4] == date_str
+            if len(r) > 1 and r[1] == date_str
         ]
+
 
         taken = len(same_day)
 
@@ -301,7 +310,12 @@ async def handle(message: Message):
     if user_id not in users:
         users.add(user_id)
         try:
-            users_sheet.append_row([user_id])
+            users_sheet.append_row([
+                message.from_user.full_name,
+                user_id,
+                message.from_user.username or "без username",
+                get_telegram_link(message.from_user)
+            ])
         except:
             pass
 
@@ -368,12 +382,13 @@ async def handle(message: Message):
         sheet.append_row([
             now.strftime("%d.%m.%Y"),
             message.from_user.full_name,
-            message.from_user.username or "без username",
             user_id,
+            message.from_user.username or "без username",
             start_time.strftime("%H:%M:%S"),
             now.strftime("%H:%M:%S"),
             minutes
         ])
+
 
         text = (
             f"🟢 Закончил перерыв\n"
@@ -420,10 +435,15 @@ async def handle(message: Message):
         user_id_str = str(user_id)
         month = datetime.now().month
 
-        user_days = [
-            r for r in records
-            if len(r) > 5 and r[3] == user_id_str and r[5].isdigit() and int(r[5]) == month
-        ]
+        user_days = []
+        for r in records:
+            if len(r) > 2 and r[2] == user_id_str:
+                try:
+                    off_date = datetime.strptime(r[1], "%d.%m.%Y")
+                    if off_date.month == month:
+                        user_days.append(r)
+                except:
+                    pass
 
         if not user_days:
             await send_clean_message(user_id, "У тебя пока нет выходных")
@@ -432,7 +452,7 @@ async def handle(message: Message):
         text = "Твои выходные:\n\n"
 
         for r in user_days:
-            text += f"{r[4]}\n"
+            text += f"{r[1]}\n"
 
         text += f"\nОсталось: {6 - len(user_days)}"
 
@@ -444,10 +464,16 @@ async def handle(message: Message):
         user_id_str = str(user_id)
         month = datetime.now().month
 
-        user_days = [
-            r for r in records
-            if len(r) > 5 and r[3] == user_id_str and r[5].isdigit() and int(r[5]) == month
-        ]
+        user_days = []
+        for r in records:
+            if len(r) > 2 and r[2] == user_id_str:
+                try:
+                    off_date = datetime.strptime(r[1], "%d.%m.%Y")
+                    if off_date.month == month:
+                        user_days.append(r)
+                except:
+                    pass
+
 
         if not user_days:
             await send_clean_message(user_id, "У тебя нет выходных для отмены")
@@ -458,7 +484,7 @@ async def handle(message: Message):
         buttons = []
 
         for r in user_days:
-            date = r[4]
+            date = r[1]
             buttons.append([
                 InlineKeyboardButton(
                     text=date,
@@ -488,8 +514,9 @@ async def handle(message: Message):
 
             same_day = [
                 r for r in records
-                if len(r) > 5 and r[4] == date_str
+                if len(r) > 1 and r[1] == date_str
             ]
+
 
             taken = len(same_day)
             limit = get_team_limit()
@@ -616,10 +643,16 @@ async def select_day(callback: CallbackQuery):
     user_id_str = str(user_id)
     
     # 🔹 проверка 6 выходных
-    user_days = [
-        r for r in records
-        if len(r) > 5 and r[3] == user_id_str and r[5].isdigit() and int(r[5]) == month
-    ]
+    user_days = []
+    for r in records:
+        if len(r) > 2 and r[2] == user_id_str:
+            try:
+                off_date = datetime.strptime(r[1], "%d.%m.%Y")
+                if off_date.month == month:
+                    user_days.append(r)
+            except:
+                pass
+
 
     if len(user_days) >= 6:
         await callback.message.answer("❌ У тебя уже 6 выходных в этом месяце")
@@ -628,7 +661,7 @@ async def select_day(callback: CallbackQuery):
     # ❌ проверка что уже брал этот день
     already_taken = [
         r for r in records
-        if len(r) > 5 and r[3] == user_id_str and r[4] == selected_date.strftime("%d.%m.%Y")
+        if len(r) > 2 and r[2] == user_id_str and r[1] == selected_date.strftime("%d.%m.%Y")
     ]
 
     if already_taken:
@@ -638,7 +671,7 @@ async def select_day(callback: CallbackQuery):
     # 🔹 проверка 20%
     same_day = [
         r for r in records
-        if len(r) > 5 and r[4] == selected_date.strftime("%d.%m.%Y")
+        if len(r) > 1 and r[1] == selected_date.strftime("%d.%m.%Y")
     ]
 
     if len(same_day) >= get_team_limit():
@@ -649,11 +682,12 @@ async def select_day(callback: CallbackQuery):
     user_list = []
 
     for r in same_day:
-        username = r[2]
+        username = r[3] if len(r) > 3 else ""
         if username and username != "без username":
             user_list.append(f"@{username}")
         else:
-            user_list.append(r[1])
+            user_list.append(f"ID: {r[2]}")
+
 
     list_text = ""
     if user_list:
@@ -662,12 +696,11 @@ async def select_day(callback: CallbackQuery):
     # 🔹 запись
     days_off_sheet.append_row([
         datetime.now().strftime("%d.%m.%Y"),
-        callback.from_user.full_name,
-        callback.from_user.username or "без username",
-        user_id,
         selected_date.strftime("%d.%m.%Y"),
-        month
+        user_id,
+        callback.from_user.username or "без username"
     ])
+
 
     remaining = get_team_limit() - (len(same_day) + 1)
 
@@ -707,7 +740,7 @@ async def cancel_day(callback: CallbackQuery):
     records = days_off_sheet.get_all_values()
 
     for i, r in enumerate(records):
-        if len(r) > 5 and r[3] == str(user_id) and r[4] == date:
+        if len(r) > 2 and r[2] == str(user_id) and r[1] == date:
             days_off_sheet.delete_rows(i + 1)
             break
 
@@ -789,9 +822,10 @@ async def delete_user(message: Message):
         records = users_sheet.get_all_values()
 
         for i, r in enumerate(records):
-            if r and r[0] == str(user_id):
+            if len(r) > 1 and r[1] == str(user_id):
                 users_sheet.delete_rows(i + 1)
                 break
+
 
         await message.answer(f"Удалён: {user_id}")
 
