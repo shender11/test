@@ -37,6 +37,7 @@ days_off_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt
 users_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("Users")
 settings_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("Settings")
 active_breaks_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("ActiveBreaks")
+blocked_users_sheet = client.open_by_key("1UtE6yC0Wz0lYFlTcdDqWu1brarxkkqRaUITHg9Ynlt8").worksheet("BlockedUsers")
 
 
 bot = Bot(token=TOKEN)
@@ -46,6 +47,32 @@ def get_telegram_link(user):
     if user.username:
         return f"https://t.me/{user.username}"
     return f"tg://user?id={user.id}"
+
+def sync_user_record(user):
+    try:
+        records = users_sheet.get_all_values()
+        user_id_str = str(user.id)
+        row_index = None
+
+        for i, r in enumerate(records):
+            if len(r) > 1 and r[1] == user_id_str:
+                row_index = i + 1
+                break
+
+        row_data = [
+            user.full_name,
+            user.id,
+            user.username or "без username",
+            get_telegram_link(user)
+        ]
+
+        if row_index:
+            users_sheet.update(f"A{row_index}:D{row_index}", [row_data])
+        else:
+            users_sheet.append_row(row_data)
+    except:
+        pass
+
 
 
 break_data = {}
@@ -279,7 +306,82 @@ def restore_active_breaks():
     except:
         pass
 
+
+
 restore_active_breaks()
+
+def get_today_admin_stats():
+    today_str = datetime.now().strftime("%d.%m.%Y")
+
+    break_records = sheet.get_all_values()
+    dayoff_records = days_off_sheet.get_all_values()
+
+    stats = {}
+    late_users = set()
+    dayoff_users = []
+
+    for r in break_records:
+        if len(r) > 7 and r[0] == today_str:
+            user_id = r[2]
+            name = r[1]
+            username = r[3]
+            actual_minutes = int(r[6]) if str(r[6]).isdigit() else 0
+            planned_minutes = int(r[7]) if str(r[7]).isdigit() else 0
+
+            if user_id not in stats:
+                stats[user_id] = {
+                    "name": name,
+                    "username": username,
+                    "count": 0,
+                    "minutes": 0
+                }
+
+            stats[user_id]["count"] += 1
+            stats[user_id]["minutes"] += actual_minutes
+
+            if actual_minutes > planned_minutes:
+                late_users.add(user_id)
+
+    for r in dayoff_records:
+        if len(r) > 3 and r[1] == today_str:
+            dayoff_users.append(f"@{r[3]}" if r[3] != "без username" else f"ID: {r[2]}")
+
+    return stats, late_users, dayoff_users
+
+
+
+def load_blocked_users():
+    try:
+        records = blocked_users_sheet.get_all_values()
+        for r in records:
+            if r and r[0].isdigit():
+                blocked_users.add(int(r[0]))
+    except:
+        pass
+
+
+def add_blocked_user_to_sheet(user_id):
+    try:
+        records = blocked_users_sheet.get_all_values()
+        for r in records:
+            if r and r[0] == str(user_id):
+                return
+        blocked_users_sheet.append_row([user_id, "", "", ""])
+    except:
+        pass
+
+
+def remove_blocked_user_from_sheet(user_id):
+    try:
+        records = blocked_users_sheet.get_all_values()
+        for i, r in enumerate(records):
+            if r and r[0] == str(user_id):
+                blocked_users_sheet.delete_rows(i + 1)
+                break
+    except:
+        pass
+
+load_blocked_users()
 
 
 
@@ -513,17 +615,9 @@ async def handle(message: Message):
     if user_id in blocked_users:
         return
 
-    if user_id not in users:
-        users.add(user_id)
-        try:
-            users_sheet.append_row([
-                message.from_user.full_name,
-                user_id,
-                message.from_user.username or "без username",
-                get_telegram_link(message.from_user)
-            ])
-        except:
-            pass
+    users.add(user_id)
+    sync_user_record(message.from_user)
+
 
     if message.text == "Начать перерыв":
         salary_waiting.pop(user_id, None)
@@ -946,6 +1040,17 @@ async def cancel_day(callback: CallbackQuery):
 
     user_id = callback.from_user.id
     date = callback.data.replace("cancel_", "")
+    today_str = datetime.now().strftime("%d.%m.%Y")
+
+    if date == today_str:
+        await bot.send_message(
+            user_id,
+            "❌ Нельзя отменить выходной в тот же день",
+            reply_markup=days_keyboard
+        )
+        return
+
+    
 
     records = days_off_sheet.get_all_values()
 
@@ -1001,6 +1106,33 @@ async def show_users(message: Message):
 
     await message.answer(text)
 
+@dp.message(F.text == "/today_stats")
+async def today_stats(message: Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+
+    stats, late_users, dayoff_users = get_today_admin_stats()
+
+    text = "📊 СТАТИСТИКА ЗА СЕГОДНЯ\n\n"
+
+    if stats:
+        text += "Перерывы:\n"
+        for user_id, data in stats.items():
+            username_text = f"@{data['username']}" if data["username"] != "без username" else f"ID: {user_id}"
+            late_mark = " | Опаздывал" if user_id in late_users else ""
+            text += f"{data['name']} ({username_text}) — {data['count']} перерывов, {data['minutes']} мин{late_mark}\n"
+    else:
+        text += "Перерывов сегодня не было\n"
+
+    text += "\nВыходные сегодня:\n"
+    if dayoff_users:
+        text += "\n".join(dayoff_users)
+    else:
+        text += "Никто не брал"
+
+    await message.answer(text)
+
+
 
 @dp.message(F.text.startswith("/block"))
 async def block_user(message: Message):
@@ -1010,6 +1142,7 @@ async def block_user(message: Message):
     try:
         user_id = int(message.text.split()[1])
         blocked_users.add(user_id)
+        add_blocked_user_to_sheet(user_id)
         await message.answer(f"Заблокирован: {user_id}")
     except:
         await message.answer("Ошибка. Пример: /block 123456789")
@@ -1023,6 +1156,7 @@ async def unblock_user(message: Message):
     try:
         user_id = int(message.text.split()[1])
         blocked_users.discard(user_id)
+        remove_blocked_user_from_sheet(user_id)
         await message.answer(f"Разблокирован: {user_id}")
     except:
         await message.answer("Ошибка. Пример: /unblock 123456789")
@@ -1038,6 +1172,8 @@ async def delete_user(message: Message):
         # удалить из памяти
         users.discard(user_id)
         blocked_users.discard(user_id)
+        remove_blocked_user_from_sheet(user_id)
+
 
         # удалить из таблицы
         records = users_sheet.get_all_values()
