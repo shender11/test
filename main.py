@@ -194,16 +194,24 @@ def get_today_planned_break_minutes(user_id):
 
 
 def check_break_type_limit(user_id, minutes):
+    breaks_15, breaks_30 = get_today_break_type_stats(user_id)
     total_planned_minutes = get_today_planned_break_minutes(user_id)
     remaining_minutes = 60 - total_planned_minutes
 
     if remaining_minutes <= 0:
         return False, "❌ Ты уже использовал весь лимит перерывов за сегодня: 60 минут"
 
+    if breaks_15 >= 4:
+        return False, "❌ Ты уже использовал весь лимит перерывов за сегодня: 60 минут"
+
+    if breaks_30 >= 2:
+        return False, "❌ Ты уже использовал весь лимит перерывов за сегодня: 60 минут"
+
     if minutes > remaining_minutes:
         return False, f"❌ У тебя осталось только {remaining_minutes} мин перерыва на сегодня"
 
     return True, None
+
 
 
 def save_active_break(user):
