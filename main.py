@@ -407,24 +407,27 @@ async def handle(message: Message):
     # 🔹 МЕНЮ
     if message.text == "Перерывы":
         waiting_time.discard(user_id)
+        salary_waiting.pop(user_id, None)
         await send_clean_message(user_id, "Меню перерывов", reply_markup=break_keyboard)
         return
 
     elif message.text == "Выходные":
         waiting_time.discard(user_id)
+        salary_waiting.pop(user_id, None)
         await send_clean_message(user_id, "Меню выходных", reply_markup=days_keyboard)
         return
-
 
     elif message.text == "Зарплата":
         waiting_time.discard(user_id)
         await send_clean_message(user_id, "Меню зарплаты", reply_markup=salary_keyboard)
         return
 
-
     elif message.text == "Мой профиль":
+        waiting_time.discard(user_id)
+        salary_waiting.pop(user_id, None)
         breaks_count, total_minutes = get_today_break_stats(user_id)
         breaks_15, breaks_30 = get_today_break_type_stats(user_id)
+
 
 
         records = days_off_sheet.get_all_values()
@@ -460,8 +463,10 @@ async def handle(message: Message):
 
     elif message.text == "Назад":
         waiting_time.discard(user_id)
+        salary_waiting.pop(user_id, None)
         await send_clean_message(user_id, "Главное меню", reply_markup=main_keyboard)
         return
+
 
         
     if message.text and message.text.startswith("/") and message.text != "/start":
@@ -682,8 +687,9 @@ async def handle(message: Message):
    
     # 💰 ЗАРПЛАТА
     elif message.text == "Моя зарплата":
+        waiting_time.discard(user_id)
         salary_waiting[user_id] = {"step": "balance"}
-        await send_clean_message(user_id, "Введи баланс ($)")
+        await send_clean_message(user_id, "Введи баланс ($)", reply_markup=salary_keyboard)
 
     elif user_id in salary_waiting:
 
