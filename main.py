@@ -340,11 +340,13 @@ async def send_clean_message(user_id, text, reply_markup=None):
 # СТАРТ
 @dp.message(CommandStart())
 async def start(message: Message):
+    waiting_time.discard(message.from_user.id)
     await send_clean_message(
         message.from_user.id,
         "Главное меню",
         reply_markup=main_keyboard
     )
+
 
 # 🚨 КОНТРОЛЬ ПЕРЕРЫВА
 async def break_control(user_id, minutes, name, username):
@@ -404,16 +406,21 @@ async def handle(message: Message):
 
     # 🔹 МЕНЮ
     if message.text == "Перерывы":
+        waiting_time.discard(user_id)
         await send_clean_message(user_id, "Меню перерывов", reply_markup=break_keyboard)
         return
 
     elif message.text == "Выходные":
+        waiting_time.discard(user_id)
         await send_clean_message(user_id, "Меню выходных", reply_markup=days_keyboard)
         return
 
+
     elif message.text == "Зарплата":
+        waiting_time.discard(user_id)
         await send_clean_message(user_id, "Меню зарплаты", reply_markup=salary_keyboard)
         return
+
 
     elif message.text == "Мой профиль":
         breaks_count, total_minutes = get_today_break_stats(user_id)
@@ -452,8 +459,10 @@ async def handle(message: Message):
 
 
     elif message.text == "Назад":
+        waiting_time.discard(user_id)
         await send_clean_message(user_id, "Главное меню", reply_markup=main_keyboard)
         return
+
         
     if message.text and message.text.startswith("/") and message.text != "/start":
         return
