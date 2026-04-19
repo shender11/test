@@ -64,7 +64,7 @@ try:
             users.add(int(r[1]))
 except:
     pass
-    restore_active_breaks()
+
 
 
 # 🔹 ГЛАВНОЕ МЕНЮ
@@ -155,6 +155,39 @@ def get_today_break_stats(user_id):
 
     return breaks_count, total_minutes
 
+def get_today_break_type_stats(user_id):
+    records = sheet.get_all_values()
+    today_str = datetime.now().strftime("%d.%m.%Y")
+
+    breaks_15 = 0
+    breaks_30 = 0
+
+    for r in records:
+        if len(r) > 7 and r[0] == today_str and r[2] == str(user_id):
+            try:
+                planned_minutes = int(r[7])
+                if planned_minutes == 15:
+                    breaks_15 += 1
+                elif planned_minutes == 30:
+                    breaks_30 += 1
+            except:
+                pass
+
+    return breaks_15, breaks_30
+
+
+def check_break_type_limit(user_id, minutes):
+    breaks_15, breaks_30 = get_today_break_type_stats(user_id)
+
+    if minutes == 15 and breaks_15 >= 4:
+        return False, "❌ Ты уже использовал максимум 4 перерыва по 15 минут за сегодня"
+
+    if minutes == 30 and breaks_30 >= 2:
+        return False, "❌ Ты уже использовал максимум 2 перерыва по 30 минут за сегодня"
+
+    return True, None
+
+
 
 def save_active_break(user):
     try:
@@ -190,7 +223,6 @@ def remove_active_break(user_id):
 def restore_active_breaks():
     try:
         records = active_breaks_sheet.get_all_values()
-        now = datetime.now()
 
         for r in records:
             if len(r) < 5:
@@ -213,21 +245,8 @@ def restore_active_breaks():
     except:
         pass
 
+restore_active_breaks()
 
-def check_break_limits(user_id):
-    breaks_count, total_minutes = get_today_break_stats(user_id)
-
-    max_breaks = get_setting_value("max_breaks_per_day", 3)
-    max_minutes = get_setting_value("max_break_minutes_per_day", 30)
-
-    return {
-        "breaks_count": breaks_count,
-        "total_minutes": total_minutes,
-        "max_breaks": max_breaks,
-        "max_minutes": max_minutes,
-        "breaks_exceeded": breaks_count >= max_breaks,
-        "minutes_exceeded": total_minutes >= max_minutes
-    }
 
 
 def generate_calendar():
@@ -396,8 +415,10 @@ async def handle(message: Message):
         await send_clean_message(user_id, "Меню зарплаты", reply_markup=salary_keyboard)
         return
 
-        elif message.text == "Мой профиль":
+    elif message.text == "Мой профиль":
         breaks_count, total_minutes = get_today_break_stats(user_id)
+        breaks_15, breaks_30 = get_today_break_type_stats(user_id)
+
 
         records = days_off_sheet.get_all_values()
         month = datetime.now().month
@@ -420,8 +441,11 @@ async def handle(message: Message):
             f"Username: @{message.from_user.username if message.from_user.username else 'без username'}\n"
             f"Осталось выходных: {remaining_days_off}\n"
             f"Перерывов сегодня: {breaks_count}\n"
+            f"Из них по 15 мин: {breaks_15}/4\n"
+            f"Из них по 30 мин: {breaks_30}/2\n"
             f"Минут на перерыве сегодня: {total_minutes}"
         )
+
 
         await send_clean_message(user_id, text, reply_markup=main_keyboard)
         return
@@ -450,12 +474,13 @@ async def handle(message: Message):
             pass
 
     if message.text == "Начать перерыв":
-    if user_id in break_data and break_data[user_id]["active"]:
-        await send_clean_message(user_id, "❗ У тебя уже есть активный перерыв")
-        return
+        if user_id in break_data and break_data[user_id]["active"]:
+            await send_clean_message(user_id, "❗ У тебя уже есть активный перерыв")
+            return
 
-    waiting_time.add(user_id)
-    await send_clean_message(user_id, "Введи длительность перерыва (максимум 30 минут)")
+        waiting_time.add(user_id)
+        await send_clean_message(user_id, "Введи длительность перерыва: 15 или 30 минут")
+
 
 
     elif user_id in waiting_time:
@@ -466,31 +491,20 @@ async def handle(message: Message):
 
         minutes = int(message.text)
 
-        if minutes > 30:
-            await send_clean_message(user_id, "❗ Максимум 30 минут")
+        if minutes not in [15, 30]:
+            await send_clean_message(user_id, "❗ Можно выбрать только 15 или 30 минут")
             return
 
-        if minutes <= 0:
-            await send_clean_message(user_id, "❗ Некорректное значение")
-            return
 
-        limits = check_break_limits(user_id)
+        allowed, error_text = check_break_type_limit(user_id, minutes)
 
-        if limits["breaks_exceeded"]:
+        if not allowed:
             waiting_time.remove(user_id)
-            await send_clean_message(
-                user_id,
-                f"❌ Ты уже использовал максимум перерывов за сегодня: {limits['max_breaks']}"
-            )
+            await send_clean_message(user_id, error_text)
             return
 
-        if limits["minutes_exceeded"]:
-            waiting_time.remove(user_id)
-            await send_clean_message(
-                user_id,
-                f"❌ Ты уже использовал максимум минут перерыва за сегодня: {limits['max_minutes']}"
-            )
-            return
+
+
 
 
         waiting_time.remove(user_id)
@@ -545,23 +559,10 @@ async def handle(message: Message):
             message.from_user.username or "без username",
             start_time.strftime("%H:%M:%S"),
             now.strftime("%H:%M:%S"),
-            minutes
+            minutes,
+            data["minutes"]
         ])
 
-        breaks_count, total_minutes = get_today_break_stats(user_id)
-        max_breaks = get_setting_value("max_breaks_per_day", 3)
-        max_minutes = get_setting_value("max_break_minutes_per_day", 30)
-
-        if breaks_count > max_breaks or total_minutes > max_minutes:
-            alert_text = (
-                f"⚠️ ПРЕВЫШЕН ЛИМИТ ПЕРЕРЫВОВ\n"
-                f"{message.from_user.full_name}\n"
-                f"@{message.from_user.username if message.from_user.username else 'без username'}\n"
-                f"Перерывов сегодня: {breaks_count}\n"
-                f"Минут сегодня: {total_minutes}"
-            )
-            await bot.send_message(ADMIN_ID, alert_text)
-            await bot.send_message(OWNER_ID, alert_text)
 
 
 
