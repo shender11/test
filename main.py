@@ -88,6 +88,15 @@ break_keyboard = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+break_time_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="15 минут")],
+        [KeyboardButton(text="30 минут")],
+        [KeyboardButton(text="Назад")]
+    ],
+    resize_keyboard=True
+)
+
 # 🔹 ВЫХОДНЫЕ
 days_keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -423,10 +432,12 @@ async def handle(message: Message):
         "Перерывы", "Выходные", "Зарплата", "Мой профиль",
         "Назад",
         "Начать перерыв", "Закончить перерыв",
+        "15 минут", "30 минут",
         "Взять выходной", "Отменить выходной",
         "Мои выходные",
         "Моя зарплата"
     ]:
+
         try:
             await message.delete()
         except:
@@ -524,9 +535,10 @@ async def handle(message: Message):
         waiting_time.add(user_id)
         await send_clean_message(
             user_id,
-            "Введи длительность перерыва: 15 или 30 минут",
-            reply_markup=break_keyboard
+            "Выбери длительность перерыва:",
+            reply_markup=break_time_keyboard
         )
+
         return
 
     elif message.text == "Закончить перерыв":
@@ -755,14 +767,16 @@ async def handle(message: Message):
         except:
             pass
 
-        if not message.text or not message.text.isdigit():
-            await send_clean_message(user_id, "❗ Введи число", reply_markup=break_keyboard)
-            return
-
-        minutes = int(message.text)
-
-        if minutes not in [15, 30]:
-            await send_clean_message(user_id, "❗ Можно выбрать только 15 или 30 минут", reply_markup=break_keyboard)
+        if message.text == "15 минут":
+            minutes = 15
+        elif message.text == "30 минут":
+            minutes = 30
+        else:
+            await send_clean_message(
+                user_id,
+                "❗ Выбери кнопку: 15 минут или 30 минут",
+                reply_markup=break_time_keyboard
+            )
             return
 
         allowed, error_text = check_break_type_limit(user_id, minutes)
@@ -802,6 +816,7 @@ async def handle(message: Message):
             )
         )
         return
+
 
 
     
