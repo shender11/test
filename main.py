@@ -341,11 +341,13 @@ async def send_clean_message(user_id, text, reply_markup=None):
 @dp.message(CommandStart())
 async def start(message: Message):
     waiting_time.discard(message.from_user.id)
+    salary_waiting.pop(message.from_user.id, None)
     await send_clean_message(
         message.from_user.id,
         "Главное меню",
         reply_markup=main_keyboard
     )
+
 
 
 # 🚨 КОНТРОЛЬ ПЕРЕРЫВА
@@ -690,6 +692,7 @@ async def handle(message: Message):
         waiting_time.discard(user_id)
         salary_waiting[user_id] = {"step": "balance"}
         await send_clean_message(user_id, "Введи баланс ($)", reply_markup=salary_keyboard)
+
 
     elif user_id in salary_waiting:
 
